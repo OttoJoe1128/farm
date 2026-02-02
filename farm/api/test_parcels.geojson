@@ -1,0 +1,59 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Test Parsel 1",
+        "area_type": "farmland",
+        "owner": "Test Owner 1"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [28.9784, 41.0082],
+          [28.9794, 41.0082],
+          [28.9794, 41.0092],
+          [28.9784, 41.0092],
+          [28.9784, 41.0082]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Test Parsel 2",
+        "area_type": "residential",
+        "owner": "Test Owner 2"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [28.9800, 41.0100],
+          [28.9810, 41.0100],
+          [28.9810, 41.0110],
+          [28.9800, 41.0110],
+          [28.9800, 41.0100]
+        ]]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "Test Parsel 3",
+        "area_type": "industrial",
+        "owner": "Test Owner 3"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [28.9750, 41.0050],
+          [28.9770, 41.0050],
+          [28.9770, 41.0070],
+          [28.9750, 41.0070],
+          [28.9750, 41.0050]
+        ]]
+      }
+    }
+  ]
+}

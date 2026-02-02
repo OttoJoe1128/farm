@@ -1,0 +1,56 @@
+{
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              26.57202,
+              41.62024
+            ],
+            [
+              26.57199,
+              41.62053
+            ],
+            [
+              26.57199,
+              41.62063
+            ],
+            [
+              26.57111,
+              41.62065
+            ],
+            [
+              26.57112,
+              41.62021
+            ],
+            [
+              26.57202,
+              41.62024
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "ParselNo": "836",
+        "Alan": "3.401,12",
+        "Mevkii": "Köyiçi",
+        "Nitelik": "Tarla",
+        "Ada": "103",
+        "Il": "Edirne",
+        "Ilce": "Merkez",
+        "Pafta": "E17-D-12-D-2",
+        "Mahalle": "Bosna"
+      }
+    }
+  ],
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:4326"
+    }
+  }
+}
