@@ -21,12 +21,10 @@ class AppTheme {
         primary: AppColors.gridMor,
         secondary: AppColors.kartSu,
         surface: AppColors.backgroundCard,
-        background: AppColors.backgroundPrimary,
         error: AppColors.error,
         onPrimary: AppColors.notrBeyaz,
         onSecondary: AppColors.notrBeyaz,
         onSurface: AppColors.notrBeyaz,
-        onBackground: AppColors.notrBeyaz,
         onError: AppColors.notrBeyaz,
       ),
       
@@ -43,7 +41,7 @@ class AppTheme {
       ),
       
       // Card teması
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: AppColors.backgroundCard,
         elevation: AppSpacing.elevationLow,
         shape: RoundedRectangleBorder(
@@ -168,7 +166,7 @@ class AppTheme {
       ),
       
       // Dialog teması
-      dialogTheme: DialogTheme(
+      dialogTheme: DialogThemeData(
         backgroundColor: AppColors.backgroundCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSpacing.cardBorderRadius),

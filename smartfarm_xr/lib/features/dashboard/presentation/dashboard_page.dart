@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:smartfarm_xr/core/constants/app_colors.dart';
-import 'package:smartfarm_xr/core/constants/app_spacing.dart';
-import 'package:smartfarm_xr/core/constants/app_text_styles.dart';
-import 'package:smartfarm_xr/core/utils/local_storage_service.dart';
-import 'package:smartfarm_xr/features/dashboard/presentation/pages/arazilerim_sayfasi.dart';
-import 'widgets/sol_panel.dart';
 import 'widgets/harita_paneli.dart';
+import 'widgets/sol_panel.dart';
 import 'widgets/sag_panel.dart';
+import 'widgets/components/panel_components.dart';
+import '../data/gis_service.dart';
 
-/// SmartFarm XR Ana Dashboard Sayfası
-/// 3 sütunlu layout: Sol Panel + Harita + Sağ Panel
 class DashboardPage extends StatefulWidget {
   const DashboardPage({super.key});
 
@@ -18,60 +13,88 @@ class DashboardPage extends StatefulWidget {
 }
 
 class _DashboardPageState extends State<DashboardPage> {
-  final LocalStorageService _storage = const LocalStorageService();
-  static const String _farmsKey = 'sf_farms';
-  String? _currentFarmId;
-  List<Map<String, dynamic>> _farms = [];
+  bool solPanelAcik = false;
+  bool sagPanelAcik = false;
+  
+  final GisService _gisService = GisService();
+  
+  // HARİTAYA GİDECEK VERİ
+  List<dynamic>? _haritaVerisi; 
 
-  @override
-  void initState() {
-    super.initState();
-    _loadFarms();
-  }
+  // Haritayı zorla yenilemek için anahtar
+  Key _haritaKey = UniqueKey();
 
-  Future<void> _loadFarms() async {
-    _farms = await _storage.readCollection(_farmsKey);
-    if (_farms.isEmpty) {
-      final def = {'id': 'default', 'name': 'Varsayılan Arazi'};
-      _farms = [def];
-      await _storage.writeCollection(_farmsKey, _farms);
+  void _dosyaYukleVeCiz() async {
+    List<dynamic>? gelenVeri = await _gisService.haritaYukle();
+    
+    if (gelenVeri != null) {
+      setState(() {
+        _haritaVerisi = gelenVeri;
+        // KRİTİK HAMLE: Key'i değiştiriyoruz, harita sıfırdan doğuyor!
+        _haritaKey = UniqueKey(); 
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text("${gelenVeri.length} varlık haritaya işlendi!"),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        )
+      );
     }
-    _currentFarmId ??= _farms.first['id'] as String;
-    setState(() {});
   }
 
-  void _createFarm() async {
-    final controller = TextEditingController();
-    final ok = await showDialog<bool>(
+  void _parselMenuGoster() {
+    showModalBottomSheet(
       context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          backgroundColor: AppColors.backgroundSecondary,
-          title: const Text('Yeni Arazi Oluştur'),
-          content: TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: 'Arazi adı'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('İptal')),
-            TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Oluştur')),
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.9),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("ARAZİ YÖNETİMİ", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 20),
+            _parselSecenek(Icons.file_upload, "Dosya Yükle (GeoJSON)", "Akıllı analiz ile dijital ikiz oluştur", () {
+              Navigator.pop(context);
+              _dosyaYukleVeCiz(); 
+            }),
+            const SizedBox(height: 10),
+            _parselSecenek(Icons.draw, "Elle Çizim Yap", "Harita üzerinde parsel sınırlarını çiz", () {
+              Navigator.pop(context);
+            }),
           ],
-        );
-      },
+        ),
+      ),
     );
-    if (ok == true && controller.text.trim().isNotEmpty) {
-      final id = 'farm_${DateTime.now().millisecondsSinceEpoch}';
-      _farms.add({'id': id, 'name': controller.text.trim()});
-      await _storage.writeCollection(_farmsKey, _farms);
-      setState(() => _currentFarmId = id);
-    }
   }
 
-  void _navigateToMyFarms() {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => const ArazilerimSayfasi(),
+  Widget _parselSecenek(IconData icon, String baslik, String altBaslik, VoidCallback onTap) {
+    return GlassContainer(
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(color: Colors.greenAccent.withOpacity(0.2), shape: BoxShape.circle),
+            child: Icon(icon, color: Colors.greenAccent),
+          ),
+          const SizedBox(width: 15),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(baslik, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                Text(altBaslik, style: const TextStyle(color: Colors.white54, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -79,92 +102,77 @@ class _DashboardPageState extends State<DashboardPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppColors.backgroundPrimary,
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('SmartFarm XR'),
-            const SizedBox(width: 16),
-            _buildFarmSelector(),
-          ],
-        ),
-        backgroundColor: AppColors.backgroundSecondary,
-        foregroundColor: AppColors.notrBeyaz,
-        elevation: AppSpacing.elevationNone,
-        centerTitle: true,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.agriculture),
-            tooltip: 'Arazilerim',
-            onPressed: () => _navigateToMyFarms(),
-          ),
-          IconButton(
-            icon: const Icon(Icons.add_location_alt),
-            tooltip: 'Yeni Arazi',
-            onPressed: _createFarm,
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.notifications),
-            onPressed: () {},
-          ),
-        ],
-      ),
-      body: Row(
+      body: Stack(
         children: [
-          // SOL PANEL - Bilgi Kartları
-          Container(
-            width: 280, // Daha dar genişlik
-            height: double.infinity,
-            color: AppColors.backgroundSecondary,
-            child: const SolPanel(),
+          // ZEMİN (Harita) - Key eklendi!
+          Positioned.fill(
+            child: HaritaPaneli(
+              key: _haritaKey, // <--- İŞTE ÇÖZÜM BURADA
+              dijitalIkizVerisi: _haritaVerisi
+            ), 
           ),
-          
-          // ORTA PANEL - Harita
-          Expanded(
-            child: Container(
-              height: double.infinity,
-              color: AppColors.backgroundPrimary,
-              child: const HaritaPaneli(),
+
+          // Paneller
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            top: 0, bottom: 0, left: solPanelAcik ? 0 : -350, width: 320,
+            child: Container(color: Colors.black.withOpacity(0.9), child: const SolPanel()),
+          ),
+          AnimatedPositioned(
+            duration: const Duration(milliseconds: 300),
+            top: 0, bottom: 0, right: sagPanelAcik ? 0 : -350, width: 300,
+            child: Container(color: Colors.black.withOpacity(0.9), child: const SagPanel()),
+          ),
+
+          // Alt Menü
+          Positioned(
+            bottom: 30, left: 20, right: 20,
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.9),
+                  borderRadius: BorderRadius.circular(40),
+                  border: Border.all(color: Colors.greenAccent.withOpacity(0.5)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _menuButonu(Icons.add_location_alt, "Parsel", false, _parselMenuGoster),
+                    const SizedBox(width: 25),
+                    _menuButonu(
+                      solPanelAcik ? Icons.view_in_ar : Icons.view_in_ar_outlined, 
+                      "Dijital İkiz", solPanelAcik, 
+                      () => setState(() { solPanelAcik = !solPanelAcik; if(solPanelAcik) sagPanelAcik = false; })
+                    ),
+                    const SizedBox(width: 25),
+                    _menuButonu(
+                      sagPanelAcik ? Icons.notifications_active : Icons.notifications_none, 
+                      "Uyarılar", sagPanelAcik, 
+                      () => setState(() { sagPanelAcik = !sagPanelAcik; if(sagPanelAcik) solPanelAcik = false; })
+                    ),
+                    const SizedBox(width: 25),
+                    _menuButonu(Icons.settings, "Ayar", false, () {}),
+                  ],
+                ),
+              ),
             ),
-          ),
-          
-          // SAĞ PANEL - Uyarı Kartları
-          Container(
-            width: 280, // Daha dar genişlik
-            height: double.infinity,
-            color: AppColors.backgroundSecondary,
-            child: const SagPanel(),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildFarmSelector() {
-    return Container(
-      padding: EdgeInsets.symmetric(horizontal: AppSpacing.xs),
-      decoration: BoxDecoration(
-        color: AppColors.backgroundCard,
-        borderRadius: BorderRadius.circular(AppSpacing.xs),
-        border: Border.all(color: AppColors.gridMor.withOpacity(0.5), width: 1),
-      ),
-      child: DropdownButton<String>(
-        value: _currentFarmId,
-        dropdownColor: AppColors.backgroundCard,
-        underline: Container(),
-        style: TextStyle(color: AppColors.notrBeyaz, fontSize: 12),
-        items: _farms
-            .map((f) => DropdownMenuItem(
-                  value: f['id'] as String,
-                  child: Text(f['name'] as String),
-                ))
-            .toList(),
-        onChanged: (v) => setState(() => _currentFarmId = v),
+  Widget _menuButonu(IconData icon, String label, bool isActive, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: isActive ? Colors.greenAccent : Colors.white70, size: 28),
+          const SizedBox(height: 4),
+          Text(label, style: TextStyle(color: isActive ? Colors.greenAccent : Colors.white54, fontSize: 10, fontWeight: FontWeight.bold)),
+        ],
       ),
     );
   }

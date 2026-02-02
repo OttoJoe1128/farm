@@ -46,7 +46,7 @@ dependencies:
   fl_chart: ^0.66.0
 
   # Maps
-  mapbox_gl: ^0.16.0
+  # mapbox_gl: ^0.16.0  # Geçici olarak devre dışı - Dart 3.5 uyumluluk sorunu
 
   # Networking
   http: ^1.1.0
@@ -54,7 +54,7 @@ dependencies:
   mqtt_client: ^9.8.0
   
   # File Handling
-  file_picker: ^6.1.1
+  file_picker: ^8.0.7
 
   # UI
   cupertino_icons: ^1.0.8
@@ -64,6 +64,9 @@ dependencies:
   
   # Location
   geolocator: ^11.0.0
+  flutter_map: ^8.2.2
+  latlong2: ^0.9.1
+  dio: ^5.9.1
 
 dev_dependencies:
   flutter_test:

@@ -42,3 +42,7 @@ flake8==6.1.0
 
 # Monitoring & Logging
 structlog==23.2.0
+geopandas>=0.14.0
+fiona>=1.9.0
+shapely>=2.0.0
+python-multipart>=0.0.6
