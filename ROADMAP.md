@@ -11,18 +11,19 @@ Bu belge, projenin "Dijital İkiz" ve "Akıllı Çiftlik Yönetimi" dönüşüm 
 - [x] Frontend: Kamera odaklama ve otomatik zoom (Auto-Fit).
 - [x] Frontend: Hatalı veri tiplerine karşı "Robust Parser" (Çökme önleyici).
 
-## 🟡 FAZ 2: Hassas Planlama ve Izgara Sistemi (MEVCUT AŞAMA)
-Kullanıcının milimetrik işlem yapabilmesi için görsel referans sistemi.
-- [x] Frontend: Zoom seviyesine duyarlı "Dinamik Grid (Izgara)" katmanı. (TAMAMLANDI ✅)
+## 🟢 FAZ 2: Hassas Planlama ve Izgara Sistemi (TAMAMLANDI)
+- [x] Frontend: Zoom seviyesine duyarlı "Dinamik Grid (Izgara)" katmanı.
+- [x] Frontend: Mühendislik Modu (Grid Rengi ve Görünürlük Ayarı).
 - [ ] Frontend: Metre/Dönüm ölçüm araçları (Cetvel).
 - [ ] Frontend: Gridlerin dünya koordinatlarına (Lat/Lng) kilitlenmesi.
 
-## 🔴 FAZ 3: Etkileşimli Editör (Varlık Kütüphanesi)
+## 🟡 FAZ 3: Etkileşimli Editör (MEVCUT AŞAMA)
 "Sıkıcı Paneller" yerine "Sürükle-Bırak" sistemi.
-- [ ] Frontend: Alt menüde "Varlık Kütüphanesi" (Asset Dock) tasarımı.
-- [ ] Frontend: Sürükle-Bırak (Drag & Drop) mekanizması.
-- [ ] Backend: Varlıkların Parent-Child (Tarla -> Ağaç) ilişkisinin veritabanı şeması.
+- [x] Frontend: Alt menüde "Varlık Kütüphanesi" (Asset Dock) tasarımı. (TAMAMLANDI ✅)
+- [x] Frontend: Sürükle-Bırak (Drag & Drop) ve Koordinat Hesaplama Matematiği. (TAMAMLANDI ✅)
+- [ ] Backend: Varlıkların Parent-Child (Tarla -> Ağaç) ilişkisinin veritabanı şeması. (SIRADAKİ ADIM 🎯)
 - [ ] Frontend: Seçili varlığı silme, taşıma, döndürme özellikleri.
+- [ ] Backend: Yeni eklenen varlıkların veritabanına kaydedilmesi (Persistence).
 
 ## 🟣 FAZ 4: Akıllı Analiz ve Otomasyon
 - [ ] Backend: Google Earth Engine / OpenCV ile uydu görüntüsünden "Otomatik Varlık Tespiti" (Draft Mode).
