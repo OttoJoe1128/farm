@@ -1,127 +1,70 @@
-# SmartFarm XR – Proje Defteri
+# Smart Farm XR - Tek Proje Defteri
 
-Bu dosya; yol haritası, mimari, görev listesi ve ilerleme kayıtlarının tek kaynağıdır.
+Bu dosya projedeki tek resmi tanitim + durum + TODO kaynagidir.
 
-## 1) Proje Özeti
-- Amaç: Gerçek zamanlı sensör verileriyle, harita tabanlı ve 3D/VR destekli çiftlik deneyimi.
-- Bileşenler: Dashboard (Sol/Orta/Sağ), Harita (Mapbox/QGIS), IoT (MQTT/WebSocket), Otomasyon, Bildirimler, VR/AR.
+## 1) Proje Amaci
+- Ciftlik parsellerini dijital ikiz olarak haritada yonetmek.
+- Parsel ustune uydu goruntusunu birebir oturtup varlik yerlestirmeyi hizlandirmak.
+- Dusuk donanimli Linux ortaminda stabil calismak.
 
-## 2) Mimari (Yüksek Seviye)
-- Frontend: Flutter (Web/Mobile), Riverpod, Freezed, AutoRoute, getIt, fl_chart, mapbox_gl.
-- Backend: FastAPI (REST + WebSocket), Postgres(+TimescaleDB), Redis, MQTT Broker (EMQX/Mosquitto).
-- Akış: MQTT → Backend (Rule Engine) → Event Bus → WebSocket → Flutter UI.
+## 2) Guncel Teknik Mimari
 
-### Flutter Modül Yapısı
-- core/
-- domain/
-- data/
-- features/
-  - dashboard/
-  - map/
-  - iot/
+### Frontend
+- Flutter + flutter_map
+- Coklu parsel yukleme ve otomatik harita odaklama
+- "Uyduyu Getir" aksiyonu (otomatik prefetch + elle yenileme)
+- Uydu overlay'i backend'den gelen gercek bounds ile yerlestirme
+- Snap, olcum modu ve nokta tabanli varlik gostergeleri
 
-## 3) Yol Haritası
-- MVP: Dashboard 3 sütun, Mapbox grid, canlı mock akış, kural motoru, uyarılar
-- Beta: Gerçek cihaz/GPS, 3D ikonlar, animasyonlu grid, WebXR sahnesi, bildirimler
-- Ürünleşme: SaaS çok kiracılı yapı, gelişmiş analitik/AI, mobil uygulama
+### Backend
+- FastAPI (`backend/main.py`)
+- Geometri hesaplari Web Mercator (EPSG:3857) tabanli
+- Parsel maskeleme: OpenCV `fillPoly` ile dis alanlari tam seffaflama
+- Uydu kaynagi fallback zinciri:
+  - `esri`
+  - `mapbox` (token/izin uygunsa)
+  - `custom_xyz` (URL template ile)
+- `custom_xyz` icin varsayilan ucretsiz deneme template'leri tanimli
+- Esri export hatasinda XYZ tile fallback + stitch
 
-## 4) Kurallar
-- Clean Architecture, SOLID, repository pattern
-- Riverpod + Freezed UI state
-- Türkçe kod ve dokümantasyon; adlandırma standartları
-- Yeni dosya öncesi varlık kontrolü; mevcut yapıyı bozmadan ilerleme
+## 3) Kritik Calistirma Notlari
 
-## 5) Güncel Görev Listesi
-- [x] Figma bileşen kütüphanesini ve görsel dilini tanımla (id: figma-design-system)
-- [x] Flutter projesi iskeletini kur ve temel bağımlılıkları ekle (id: flutter-skeleton-setup)
-- [x] Dashboard sol/orta/sağ paneller için widget ağacını uygula (id: dashboard-ui)
-- [ ] Domain modellerini, Freezed durumlarını ve Riverpod provider'larını tanımla (id: domain-and-state)
-- [ ] Harita modülünü (Mapbox) ve grid sahnesini prototiple (id: map-module)
-- [ ] MQTT/WebSocket mock veri hattını kur ve canlı veri akışını simüle et (id: realtime-mock-stream)
-- [x] Merkezi proje defteri dosyasını oluştur ve düzenli güncelle (id: project-ledger)
-
-## 6) Tasarım Sistemi (Figma)
-- Renk: Kart/* (pastel), Uyari/* (sarı/turuncu/kırmızı), Grid/Mor, Nötr/*
-- Metin: Kart/Başlık 18B, Değer 20SB; Uyarı/Başlık 18B, Metin 14R
-- Bileşenler: BilgiKarti, UyariKarti, HaritaSembol, IconBar
-- Frame: 1440×900, 3 sütun; Orta panel grid overlay
-
-### 6.1 Icon Bar (Harita için 3D İllüstratif Set)
-- Konum: Harita panelinin sol üstünde dock, hover ile genişler.
-- İçerik Grupları:
-  - Sensörler: Toprak, Su, Enerji, Hava, Hayvan Aktivitesi
-  - Cihazlar: Pompa, Yem Makinesi, Solar, Depo, Drone
-  - Katmanlar: Ağaçlar, Su Yolları, Parseller, IoT, Uyarılar
-- Varyantlar: `boyut = compact|expanded`, `tema = light|dark`, `durum = normal|aktif|kritik`
-- 3D Stil: Yumuşak gölgeli, PBR benzeri ışık; ikon başına 2 ton degrade + hafif specular.
-- Etkileşim: Hover → tooltip + parıltı; Click → ilgili katman/cihaz seçimi; Shift+Click → çoklu seçim.
-
-#### 6.1.A Gerçekçi Icon Bar – Örnek Kompozisyon
-- Varsayılan 5 ikon: Toprak, Su, Enerji, Pompa, Uyarı
-- Boyutlar: `compact=40×40`, `expanded=56×56` (canvas), ikon safe-area 84%
-- Malzeme & Işık:
-  - Base color: çift degrade (üstten alta), subtle noise 2–3%
-  - Roughness 0.35–0.45, Metalness 0.05–0.1 (plastik/kompozit hissi)
-  - Üst sol 45° key light, alt sağ 10% fill; Ambient occlusion hafif
-  - Kenar vurgusu: 1px inner highlight, 12% opacity
-- Durum renkleri:
-  - normal: brand ton
-  - aktif: brand ton + dış parıltı 8% + 1px dış stroke
-  - kritik: kırmızı 600 tabanı, titreşimli glow 12%
-- Örnek konumlandırma (compact):
-  - [Toprak][Su][Enerji][Pompa][Uyarı]  → spacing 8px, padding 12px, radius 12
-
-Örnek ikon özellikleri (tasarım değişkenleri):
-```json
-{
-  "icons": [
-    {"id": "toprak", "label": "Toprak", "symbol": "soil" , "state": "normal", "color": "#8BC34A", "tooltip": "%45 nem", "material": {"roughness": 0.4, "metalness": 0.08}},
-    {"id": "su",     "label": "Su",     "symbol": "water", "state": "aktif",  "color": "#29B6F6", "tooltip": "%70 seviye", "material": {"roughness": 0.38, "metalness": 0.06}},
-    {"id": "enerji", "label": "Enerji", "symbol": "solar", "state": "normal", "color": "#FFD54F", "tooltip": "5 kW üretim", "material": {"roughness": 0.42, "metalness": 0.05}},
-    {"id": "pompa",  "label": "Pompa",  "symbol": "pump",  "state": "aktif",  "color": "#26A69A", "tooltip": "Açık", "material": {"roughness": 0.45, "metalness": 0.1}},
-    {"id": "uyari",  "label": "Uyarı",  "symbol": "alert", "state": "kritik", "color": "#EF5350", "tooltip": "Nem kritik %30", "material": {"roughness": 0.35, "metalness": 0.05}}
-  ],
-  "variants": {"size": ["compact", "expanded"], "theme": ["light", "dark"], "state": ["normal", "aktif", "kritik"]}
-}
+### Flutter (donanim kisiti nedeniyle zorunlu)
+```bash
+flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0 --web-renderer html
 ```
 
-Export rehberi:
-- SVG (ikon kontur) + PNG@2x/@3x (ışık/gölge efektleri korunur)
-- Sprite sheet: 56px grid, 8px spacing, dark ve light temalar ayrı
-- Adlandırma: `icon/[tema]/[id]_[durum]_[size].png` (ör: `icon/dark/pompa_aktif_compact.png`)
+### Backend
+```bash
+cd /home/ottojoe/farm/farm/backend
+python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
 
-### 6.2 Açılır Kart Davranışı
-- Kart türleri: BilgiKarti (sol), UyariKarti (sağ)
-- Durumlar: `collapsed` (özet), `expanded` (detay), `alert-overlay` (kritik popover)
-- Animasyon: 180–220ms ease-in-out; height ve opacity birlikte; ikon mikro-bounce 1.05 scale
-- İçerik Hiyerarşisi:
-  - Özet: başlık + değer/şiddet rozeti
-  - Detay: mini grafik (son 24s), eşik/kurallar, son güncelleme zamanı, aksiyon butonları
-- Renk Uyumu: Gönderdiğin görsel paletine bağlı; doygunluk +10%, kontrast +15% ile geliştirilmiş
+### Opsiyonel Env Ayarlari
+- `MAPBOX_ACCESS_TOKEN`
+- `IMAGERY_PROVIDER_MODE` (`auto|esri|mapbox|custom_xyz`)
+- `IMAGERY_PROVIDER_PRIORITY` (ornek: `esri,mapbox,custom_xyz`)
+- `CUSTOM_XYZ_TILE_TEMPLATE`
+- `CUSTOM_XYZ_TILE_TEMPLATES` (virgulle birden cok template)
+- `MIN_IMAGERY_YEAR` (varsayilan `2025`)
+- `REQUIRE_KNOWN_FRESHNESS` (varsayilan `false`)
 
-## 7) Riskler
-- Mapbox lisans/perf; canlı akış reconnect; VR/AR kapsamı MVP’de sınırlı
+## 4) Guncel Durum (Tamamlananlar)
+- [x] Coklu parsel yukleme
+- [x] Parsel disi alanin tam seffaf maskelenmesi
+- [x] Overlay'i gercek bounds ile oturtma
+- [x] Uydu prefetch + onbellek + zorla yenile
+- [x] Saglayici fallback (esri/mapbox/custom_xyz)
+- [x] Esri export hata fallback (xyz tile stitch)
+- [x] Snap ve olcum modu
+- [x] Varlik ikonlarini nokta gorunumune indirme
 
-## 8) Değişiklik Günlüğü
-- v0.1.0 — Defter oluşturuldu ve başlangıç içerikleri yazıldı.
-- v0.2.0 — Flutter Web projesi kuruldu, temel tasarım sistemi implement edildi.
-  - ✅ Renk paleti (AppColors): Kart/*, Uyari/*, Grid/Mor, Nötr/* renkleri
-  - ✅ Tipografi sistemi (AppTextStyles): Inter font, 12-32px scale, weight varyantları
-  - ✅ Spacing sistemi (AppSpacing): 4px base unit, component spacing kuralları
-  - ✅ Tema sistemi (AppTheme): Dark theme, button, card, input stilleri
-  - ✅ Dashboard layout: 3 sütun (Sol Panel + Harita + Sağ Panel)
-  - ✅ Sol Panel: BilgiKarti (Toprak, Su, Enerji, Hava) - expandable
-  - ✅ Orta Panel: HaritaPaneli (Grid background + Icon Bar + Map controls)
-  - ✅ Sağ Panel: UyariKarti (Kritik durumlar) - expandable + aksiyon butonları
-  - ✅ Animasyonlar: Height, icon scale, pulse (kritik uyarılar için)
-  - ✅ Icon Bar: 5 ikon (Toprak, Su, Enerji, Pompa, Uyarı) - hover tooltip
-  - ✅ Grid sistemi: CustomPainter ile 32×32 px mor grid
-  - ✅ Responsive layout: 320px sol/sağ panel, orta panel flexible
-- v0.2.1 — Linux desktop development environment kuruldu.
-  - ✅ CMake kurulumu (3.28.3)
-  - ✅ Ninja build tool kurulumu
-  - ✅ Clang C++ compiler kurulumu (LLVM 18)
-  - ✅ Build tools hazır, proje çalıştırılabilir
+## 5) Aktif TODO
+- [ ] Canli ortamda tek bir lisansli ve guncel saglayiciyi netlestirip sabitleme
+- [ ] `custom_xyz` kullanilacaksa hukuk/lisans uyumlulugunu dokumante etme
+- [ ] Kisa operasyon runbook'u (hata kodu -> aksiyon tablosu) ekleme
 
----
-Bu dosya proje boyunca tek gerçek kaynaktır.
+## 6) Kapanan / Silinen Gorevler
+- Eski ayri roadmap ve tanitim dosyalari kaldirildi.
+- Bu belge disinda proje tanitim/todo kaynagi tutulmayacak.
+
