@@ -62,9 +62,29 @@ python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ## 5) Aktif TODO
 - [ ] Canli ortamda tek bir lisansli ve guncel saglayiciyi netlestirip sabitleme
 - [ ] `custom_xyz` kullanilacaksa hukuk/lisans uyumlulugunu dokumante etme
-- [ ] Kisa operasyon runbook'u (hata kodu -> aksiyon tablosu) ekleme
+- [x] Kisa operasyon runbook'u (hata kodu -> aksiyon tablosu) eklendi
 
 ## 6) Kapanan / Silinen Gorevler
 - Eski ayri roadmap ve tanitim dosyalari kaldirildi.
 - Bu belge disinda proje tanitim/todo kaynagi tutulmayacak.
+
+## 7) Sorun Giderme (Runbook)
+
+### Hata Kodu -> Aksiyon
+- `401` (`Mapbox Direct access not allowed`): token yetkisi yetersiz; `mapbox` devre disi kalir, `esri/custom_xyz` fallback kullanilir.
+- `412` (`freshness` filtre): `MIN_IMAGERY_YEAR` ve `REQUIRE_KNOWN_FRESHNESS` ayarlarini kontrol et; gerekirse `REQUIRE_KNOWN_FRESHNESS=false`.
+- `502` (`tile/export`): provider fallback logunu kontrol et; `custom_xyz` template'lerini guncelle veya `IMAGERY_PROVIDER_MODE=esri`.
+- `422` (`upload-map`): frontend multipart gonderir; backend `UploadFile` endpointinin aktif oldugunu dogrula.
+
+### Sik Senaryolar
+- Uydu goruntusu gelmiyor: backend logunda `Uydu provider sirasi` ve `... hatasi` satirlarini kontrol et.
+- Goruntu eski gorunuyor: `IMAGERY_PROVIDER_MODE=custom_xyz` ile alternatif template test et, uzun bas ile zorla yenile.
+- Overlay kayik: `overlay_bounds` response alaninin geldigini ve frontend tarafinda kullanildigini dogrula.
+- Web performans sorunu: Flutter'i sadece HTML renderer komutuyla calistir.
+
+### Hazir Calistirma Profilleri
+- Stabil profil (onerilen): `IMAGERY_PROVIDER_MODE=auto`
+- Ucretsiz kaynak deneme: `IMAGERY_PROVIDER_MODE=custom_xyz`
+- Sadece Esri: `IMAGERY_PROVIDER_MODE=esri`
+- Sadece Mapbox (yetkili token varsa): `IMAGERY_PROVIDER_MODE=mapbox`
 
