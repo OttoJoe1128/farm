@@ -196,10 +196,8 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
              yeniMarkerlar.add(Marker(point: point, width: 12, height: 12, child: markerWidget));
            } 
            else {
-             // 2. NORMAL / EDİTÖR MODU: Tam İkonlar
-             markerWidget = _ikonGetir(tip, color, 40);
-             
              if (_editMode) {
+               markerWidget = _ikonGetir(tip, color, 32);
                bool isMoving = (i == _tasinanVarlikIndex);
                if (isMoving) {
                  markerWidget = const Icon(Icons.gps_fixed, color: Colors.yellowAccent, size: 50);
@@ -214,11 +212,14 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
                    ],
                  );
                }
+               yeniMarkerlar.add(Marker(point: point, width: 72, height: 72, child: markerWidget));
              } else {
-               markerWidget = GestureDetector(onTap: () => _modalAc(item), child: markerWidget);
+               markerWidget = GestureDetector(
+                 onTap: () => _modalAc(item),
+                 child: _noktaGostergesiGetir(color: color),
+               );
+               yeniMarkerlar.add(Marker(point: point, width: 14, height: 14, child: markerWidget));
              }
-             
-             yeniMarkerlar.add(Marker(point: point, width: 80, height: 80, child: markerWidget));
            }
         }
       } catch (e) {}
@@ -386,6 +387,17 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
     return Container(
       decoration: BoxDecoration(color: color, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 2), boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.4), blurRadius: 4)]),
       child: Icon(icon, color: Colors.white, size: size * 0.7),
+    );
+  }
+
+  Widget _noktaGostergesiGetir({required Color color}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 1.5),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.35), blurRadius: 2)],
+      ),
     );
   }
 

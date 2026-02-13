@@ -25,6 +25,10 @@ class _DashboardPageState extends State<DashboardPage> {
   Map<String, double>? _uyduOverlaySiniri;
   bool _uyduYukleniyor = false;
   bool _varlikYonetimModuAktif = false;
+  bool _uyduOnbellekten = false;
+  String _uyduSaglayici = "-";
+  DateTime? _uyduSaglayiciTarihi;
+  String _uyduSaglayiciTazelikDurumu = "unknown";
 
   void _dosyaYukleVeCiz() async {
     List<dynamic>? gelenVeri = await _gisService.haritaYukle();
@@ -38,18 +42,21 @@ class _DashboardPageState extends State<DashboardPage> {
         _seciliParsel = null;
         _uyduGorseliBytes = null;
         _uyduOverlaySiniri = null;
+        _uyduOnbellekten = false;
+        _uyduSaglayici = "-";
+        _uyduSaglayiciTarihi = null;
+        _uyduSaglayiciTazelikDurumu = "unknown";
         _seciliArac = null;
         _varlikYonetimModuAktif = true;
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Parseller yüklendi. Harita otomatik odaklandı."), backgroundColor: Colors.blue));
+      _uyduyuGetir(sessizCalis: true);
     }
   }
 
   void _parselSecildi(Map<String, dynamic> parsel) {
     setState(() {
       _seciliParsel = parsel;
-      _uyduGorseliBytes = null;
-      _uyduOverlaySiniri = null;
       _varlikYonetimModuAktif = true;
     });
   }
@@ -104,7 +111,7 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  void _genelBakisaDon() { setState(() { _seciliParsel = null; _seciliArac = null; _uyduGorseliBytes = null; _uyduOverlaySiniri = null; _varlikYonetimModuAktif = false; }); }
+  void _genelBakisaDon() { setState(() { _seciliParsel = null; _seciliArac = null; _uyduGorseliBytes = null; _uyduOverlaySiniri = null; _varlikYonetimModuAktif = false; _uyduOnbellekten = false; _uyduSaglayici = "-"; _uyduSaglayiciTarihi = null; _uyduSaglayiciTazelikDurumu = "unknown"; }); }
 
   List<Map<String, dynamic>> _parselGeometrileriniTopla() {
     if (_haritaVerisi == null) {
@@ -128,17 +135,19 @@ class _DashboardPageState extends State<DashboardPage> {
     return sonuc;
   }
 
-  Future<void> _uyduyuGetir() async {
+  Future<void> _uyduyuGetir({bool sessizCalis = false, bool zorlaYenile = false}) async {
     if (_uyduYukleniyor) {
       return;
     }
     List<Map<String, dynamic>> parselGeometrileri = _parselGeometrileriniTopla();
     if (parselGeometrileri.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uydu için parsel bulunamadı."), backgroundColor: Colors.redAccent));
+      if (!sessizCalis) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uydu için parsel bulunamadı."), backgroundColor: Colors.redAccent));
+      }
       return;
     }
     setState(() => _uyduYukleniyor = true);
-    UyduGorselSonucu? gelenUyduSonucu = await _gisService.uyduGorseliGetir(parselGeometrileri: parselGeometrileri);
+    UyduGorselSonucu? gelenUyduSonucu = await _gisService.uyduGorseliGetir(parselGeometrileri: parselGeometrileri, zorlaYenile: zorlaYenile);
     if (!mounted) {
       return;
     }
@@ -146,12 +155,23 @@ class _DashboardPageState extends State<DashboardPage> {
       _uyduYukleniyor = false;
       _uyduGorseliBytes = gelenUyduSonucu?.imageBytes;
       _uyduOverlaySiniri = gelenUyduSonucu?.overlayBounds;
+      _uyduOnbellekten = gelenUyduSonucu?.onbellektenGeldi ?? false;
+      _uyduSaglayici = gelenUyduSonucu?.provider ?? "-";
+      _uyduSaglayiciTarihi = gelenUyduSonucu?.providerTarihi;
+      _uyduSaglayiciTazelikDurumu = gelenUyduSonucu?.freshnessStatus ?? "unknown";
     });
     if (gelenUyduSonucu == null) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uydu görseli alınamadı."), backgroundColor: Colors.redAccent));
+      if (!sessizCalis) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uydu görseli alınamadı."), backgroundColor: Colors.redAccent));
+      }
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Uydu görseli parsele oturtuldu."), backgroundColor: Colors.green));
+    if (!sessizCalis) {
+      String bilgiMetni = gelenUyduSonucu.onbellektenGeldi
+          ? "Uydu görseli onbellekten yüklendi."
+          : "Uydu görseli canlı çekilip parsele oturtuldu.";
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(bilgiMetni), backgroundColor: Colors.green));
+    }
   }
 
   List<double> _enlemBoylamiMercatoraCevir({required double enlem, required double boylam}) {
@@ -229,7 +249,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     if (editorModu) _aksiyonButonu(Icons.arrow_back, "Genel Bakış", Colors.redAccent, _genelBakisaDon)
                     else _aksiyonButonu(Icons.upload_file, "Parsel Yükle", Colors.black54, _dosyaYukleVeCiz),
                     if (editorModu) const SizedBox(width: 8),
-                    if (editorModu) _aksiyonButonu(Icons.satellite_alt, _uyduYukleniyor ? "Yükleniyor..." : "Uyduyu Getir", Colors.green.shade700, _uyduYukleniyor ? () {} : _uyduyuGetir),
+                    if (editorModu) _aksiyonButonu(Icons.satellite_alt, _uyduYukleniyor ? "Yükleniyor..." : "Uyduyu Getir", Colors.green.shade700, _uyduYukleniyor ? () {} : () => _uyduyuGetir(), onLongPress: _uyduYukleniyor ? null : () => _uyduyuGetir(zorlaYenile: true)),
                   ],
                 ),
                 if (editorModu)
@@ -237,7 +257,7 @@ class _DashboardPageState extends State<DashboardPage> {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 8),
                       child: Text(
-                        _seciliParsel != null ? _seciliParsel!['name'] : "Birleşik Çiftlik",
+                        _seciliParsel != null ? _seciliParsel!['name'] : (_uyduOnbellekten ? "Birleşik Çiftlik • Uydu: Önbellek" : "Birleşik Çiftlik • Uydu: Canlı"),
                         style: const TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -245,6 +265,22 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
           ),
+          if (editorModu && _uyduSaglayici != "-")
+            Positioned(
+              top: 92,
+              left: 20,
+              child: GlassContainer(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Text(
+                    _uyduSaglayiciTarihi == null
+                        ? "Kaynak: ${_uyduSaglayici.toUpperCase()} • Tarih: Bilinmiyor ($_uyduSaglayiciTazelikDurumu)"
+                        : "Kaynak: ${_uyduSaglayici.toUpperCase()} • ${_uyduSaglayiciTarihi!.day.toString().padLeft(2, '0')}.${_uyduSaglayiciTarihi!.month.toString().padLeft(2, '0')}.${_uyduSaglayiciTarihi!.year}",
+                    style: const TextStyle(color: Colors.white70, fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ),
+            ),
           
           if (editorModu) 
             Positioned(
@@ -261,7 +297,7 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
   
-  Widget _aksiyonButonu(IconData icon, String label, Color color, VoidCallback onTap) {
-    return GestureDetector(onTap: onTap, child: GlassContainer(child: Container(padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10), decoration: BoxDecoration(color: color.withOpacity(0.5), borderRadius: BorderRadius.circular(30)), child: Row(children: [Icon(icon, color: Colors.white, size: 20), const SizedBox(width: 8), Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))));
+  Widget _aksiyonButonu(IconData icon, String label, Color color, VoidCallback onTap, {VoidCallback? onLongPress}) {
+    return GestureDetector(onTap: onTap, onLongPress: onLongPress, child: GlassContainer(child: Container(padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10), decoration: BoxDecoration(color: color.withOpacity(0.5), borderRadius: BorderRadius.circular(30)), child: Row(children: [Icon(icon, color: Colors.white, size: 20), const SizedBox(width: 8), Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))));
   }
 }

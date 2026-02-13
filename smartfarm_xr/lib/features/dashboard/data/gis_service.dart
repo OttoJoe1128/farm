@@ -6,10 +6,28 @@ import 'dart:convert';
 class UyduGorselSonucu {
   final Uint8List imageBytes;
   final Map<String, double> overlayBounds;
+  final bool onbellektenGeldi;
+  final String provider;
+  final DateTime? providerTarihi;
+  final String freshnessStatus;
 
   UyduGorselSonucu({
     required this.imageBytes,
     required this.overlayBounds,
+    required this.onbellektenGeldi,
+    required this.provider,
+    required this.providerTarihi,
+    required this.freshnessStatus,
+  });
+}
+
+class _UyduOnbellekKaydi {
+  final UyduGorselSonucu sonuc;
+  final DateTime zamanDamgasi;
+
+  _UyduOnbellekKaydi({
+    required this.sonuc,
+    required this.zamanDamgasi,
   });
 }
 
@@ -18,6 +36,8 @@ class GisService {
     baseUrl: 'http://127.0.0.1:8000/api/v1',
     connectTimeout: const Duration(seconds: 10),
   ));
+  final Map<String, _UyduOnbellekKaydi> _uyduOnbellek = <String, _UyduOnbellekKaydi>{};
+  static const Duration _uyduOnbellekSuresi = Duration(hours: 24);
 
   // HATA DÜZELTİLDİ: 'Future<void>' yerine 'Future<List<dynamic>?>' yapıldı.
   Future<List<dynamic>?> haritaYukle() async {
@@ -62,8 +82,47 @@ class GisService {
     return null;
   }
 
-  Future<UyduGorselSonucu?> uyduGorseliGetir({required List<Map<String, dynamic>> parselGeometrileri}) async {
+  String _uyduOnbellekAnahtariOlustur(List<Map<String, dynamic>> parselGeometrileri) {
+    List<String> geometriImzalari = parselGeometrileri
+        .map((Map<String, dynamic> geometri) => jsonEncode(_siraliYapiOlustur(geometri)))
+        .toList();
+    geometriImzalari.sort();
+    return geometriImzalari.join('|');
+  }
+
+  dynamic _siraliYapiOlustur(dynamic deger) {
+    if (deger is Map) {
+      List<String> anahtarlar = deger.keys.map((dynamic key) => key.toString()).toList()..sort();
+      Map<String, dynamic> sonuc = <String, dynamic>{};
+      for (String anahtar in anahtarlar) {
+        sonuc[anahtar] = _siraliYapiOlustur(deger[anahtar]);
+      }
+      return sonuc;
+    }
+    if (deger is List) {
+      return deger.map((dynamic oge) => _siraliYapiOlustur(oge)).toList();
+    }
+    return deger;
+  }
+
+  Future<UyduGorselSonucu?> uyduGorseliGetir({required List<Map<String, dynamic>> parselGeometrileri, bool zorlaYenile = false}) async {
     try {
+      String onbellekAnahtari = _uyduOnbellekAnahtariOlustur(parselGeometrileri);
+      _UyduOnbellekKaydi? onbellekKaydi = _uyduOnbellek[onbellekAnahtari];
+      bool onbellekGecerli = onbellekKaydi != null &&
+          DateTime.now().difference(onbellekKaydi.zamanDamgasi) < _uyduOnbellekSuresi;
+      if (!zorlaYenile && onbellekGecerli) {
+        debugPrint("UYDU ONBELLEK: onbellekten donuyor.");
+        UyduGorselSonucu onbellekSonucu = onbellekKaydi.sonuc;
+        return UyduGorselSonucu(
+          imageBytes: onbellekSonucu.imageBytes,
+          overlayBounds: onbellekSonucu.overlayBounds,
+          onbellektenGeldi: true,
+          provider: onbellekSonucu.provider,
+          providerTarihi: onbellekSonucu.providerTarihi,
+          freshnessStatus: onbellekSonucu.freshnessStatus,
+        );
+      }
       Map<String, dynamic> requestBody = <String, dynamic>{
         'parcel_geometries': parselGeometrileri,
       };
@@ -91,8 +150,27 @@ class GisService {
           "north": (overlayBoundsMap['north'] as num).toDouble(),
           "east": (overlayBoundsMap['east'] as num).toDouble(),
         };
+        String provider = (response.data['imagery_provider'] ?? 'esri').toString();
+        String freshnessStatus = (response.data['imagery_provider_freshness_status'] ?? 'unknown').toString();
+        DateTime? providerTarihi;
+        dynamic providerTarihiRaw = response.data['imagery_provider_freshness_ts'];
+        if (providerTarihiRaw is num) {
+          providerTarihi = DateTime.fromMillisecondsSinceEpoch((providerTarihiRaw.toDouble() * 1000).round(), isUtc: true).toLocal();
+        }
         Uint8List imageBytes = base64Decode(imageBase64);
-        return UyduGorselSonucu(imageBytes: imageBytes, overlayBounds: overlayBounds);
+        UyduGorselSonucu sonuc = UyduGorselSonucu(
+          imageBytes: imageBytes,
+          overlayBounds: overlayBounds,
+          onbellektenGeldi: false,
+          provider: provider,
+          providerTarihi: providerTarihi,
+          freshnessStatus: freshnessStatus,
+        );
+        _uyduOnbellek[onbellekAnahtari] = _UyduOnbellekKaydi(
+          sonuc: sonuc,
+          zamanDamgasi: DateTime.now(),
+        );
+        return sonuc;
       }
     } catch (e) {
       debugPrint("UYDU HATASI: $e");
