@@ -32,8 +32,25 @@ class _UyduOnbellekKaydi {
 }
 
 class GisService {
+  static String _baseUrlOlustur() {
+    if (!kIsWeb) {
+      return 'http://127.0.0.1:8000/api/v1';
+    }
+    Uri mevcutAdres = Uri.base;
+    String host = mevcutAdres.host;
+    if (host == 'localhost' || host == '127.0.0.1') {
+      return '${mevcutAdres.scheme}://$host:8000/api/v1';
+    }
+    if (host.contains('cloudworkstations.dev')) {
+      host = host.replaceFirst(RegExp(r'^\d+-'), '8000-');
+      return '${mevcutAdres.scheme}://$host/api/v1';
+    }
+    String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
+    return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi/api/v1';
+  }
+
   final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'http://127.0.0.1:8000/api/v1',
+    baseUrl: _baseUrlOlustur(),
     connectTimeout: const Duration(seconds: 10),
   ));
   final Map<String, _UyduOnbellekKaydi> _uyduOnbellek = <String, _UyduOnbellekKaydi>{};

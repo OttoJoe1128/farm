@@ -6,16 +6,14 @@ import 'features/dashboard/presentation/dashboard_page.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // Global error handling
-  FlutterError.onError = (FlutterErrorDetails details) {
-    FlutterError.presentError(details);
-    debugPrint('Flutter Error: ${details.exception}');
-    debugPrint('Stack trace: ${details.stack}');
-  };
-  // Platform error handling
-  runZonedGuarded(() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      debugPrint('Flutter Error: ${details.exception}');
+      debugPrint('Stack trace: ${details.stack}');
+    };
     runApp(const SmartFarmXRApp());
   }, (Object error, StackTrace stack) {
     debugPrint('Zone Error: $error');
