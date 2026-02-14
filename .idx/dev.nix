@@ -10,6 +10,7 @@
     pkgs.php
     pkgs.composer
     pkgs.nodejs_20
+    pkgs.cmake
   ];
 
   env = {};
