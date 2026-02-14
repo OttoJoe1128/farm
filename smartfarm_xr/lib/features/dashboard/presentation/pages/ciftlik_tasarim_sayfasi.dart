@@ -154,7 +154,7 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
           final cell = GridCell(
             row: cellData['row'] ?? 0,
             col: cellData['col'] ?? 0,
-            position: LatLng(0.0, 0.0), // Varsayılan pozisyon
+            position: const LatLng(0.0, 0.0), // Varsayılan pozisyon
             isEmpty: cellData['isEmpty'] ?? true,
           );
           
@@ -205,14 +205,14 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
         return GridCell(
           row: row,
           col: col,
-          position: LatLng(0.0, 0.0),
+          position: const LatLng(0.0, 0.0),
           isEmpty: true,
         );
       });
     });
     
     setState(() {});
-    print('🔧 Boş grid oluşturuldu: ${rows}x${cols} hücre');
+    print('🔧 Boş grid oluşturuldu: ${rows}x$cols hücre');
   }
 
   void _initializeGrid() {
@@ -553,13 +553,13 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
   Widget _buildHeader() {
     return Container(
       padding: const EdgeInsets.all(AppSpacing.medium),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           colors: [AppColors.primary, AppColors.primaryDark],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: const BorderRadius.only(
+        borderRadius: BorderRadius.only(
           topLeft: Radius.circular(AppSpacing.radius),
           topRight: Radius.circular(AppSpacing.radius),
         ),
@@ -572,7 +572,7 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
               color: Colors.white.withOpacity(0.2),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Icon(
+            child: const Icon(
               Icons.agriculture,
               color: AppColors.onPrimary,
               size: 24,
@@ -745,7 +745,7 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
         children: [
           Row(
             children: [
-              Icon(Icons.category, color: AppColors.primary, size: 16),
+              const Icon(Icons.category, color: AppColors.primary, size: 16),
               const SizedBox(width: AppSpacing.small),
               Text(
                 'Çiftlik Objeleri',
@@ -830,7 +830,7 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
         children: [
           Row(
             children: [
-              Icon(Icons.settings, color: AppColors.primary, size: 20),
+              const Icon(Icons.settings, color: AppColors.primary, size: 20),
               const SizedBox(width: AppSpacing.small),
               Expanded(
                 child: Text(
@@ -972,7 +972,7 @@ class _CiftlikTasarimSayfasiState extends State<CiftlikTasarimSayfasi>
               ),
               child: Row(
                 children: [
-                  Icon(Icons.grid_on, color: AppColors.primary, size: 20),
+                  const Icon(Icons.grid_on, color: AppColors.primary, size: 20),
                   const SizedBox(width: AppSpacing.small),
                   Expanded(
                     child: Column(

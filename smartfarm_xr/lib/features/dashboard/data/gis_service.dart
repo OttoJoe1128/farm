@@ -111,6 +111,7 @@ class GisService {
       _UyduOnbellekKaydi? onbellekKaydi = _uyduOnbellek[onbellekAnahtari];
       bool onbellekGecerli = onbellekKaydi != null &&
           DateTime.now().difference(onbellekKaydi.zamanDamgasi) < _uyduOnbellekSuresi;
+
       if (!zorlaYenile && onbellekGecerli) {
         debugPrint("UYDU ONBELLEK: onbellekten donuyor.");
         UyduGorselSonucu onbellekSonucu = onbellekKaydi.sonuc;
@@ -123,9 +124,11 @@ class GisService {
           freshnessStatus: onbellekSonucu.freshnessStatus,
         );
       }
+
       Map<String, dynamic> requestBody = <String, dynamic>{
         'parcel_geometries': parselGeometrileri,
       };
+
       Response<dynamic> response = await _dio.post(
         '/gis/fetch-satellite-image',
         data: requestBody,
@@ -134,22 +137,30 @@ class GisService {
           sendTimeout: const Duration(seconds: 15),
         ),
       );
+
       if (response.statusCode == 200 && response.data != null) {
         String? imageBase64 = response.data['image_base64'] as String?;
         if (imageBase64 == null || imageBase64.isEmpty) {
           return null;
         }
+
         dynamic overlayBoundsRaw = response.data['overlay_bounds'];
-        if (overlayBoundsRaw is! Map) {
+        Map<String, dynamic> overlayBoundsMap;
+        if (overlayBoundsRaw is String) {
+          overlayBoundsMap = jsonDecode(overlayBoundsRaw) as Map<String, dynamic>;
+        } else if (overlayBoundsRaw is Map) {
+          overlayBoundsMap = Map<String, dynamic>.from(overlayBoundsRaw);
+        } else {
           return null;
         }
-        Map<String, dynamic> overlayBoundsMap = Map<String, dynamic>.from(overlayBoundsRaw);
+
         Map<String, double> overlayBounds = <String, double>{
           "south": (overlayBoundsMap['south'] as num).toDouble(),
           "west": (overlayBoundsMap['west'] as num).toDouble(),
           "north": (overlayBoundsMap['north'] as num).toDouble(),
           "east": (overlayBoundsMap['east'] as num).toDouble(),
         };
+
         String provider = (response.data['imagery_provider'] ?? 'esri').toString();
         String freshnessStatus = (response.data['imagery_provider_freshness_status'] ?? 'unknown').toString();
         DateTime? providerTarihi;
@@ -157,6 +168,7 @@ class GisService {
         if (providerTarihiRaw is num) {
           providerTarihi = DateTime.fromMillisecondsSinceEpoch((providerTarihiRaw.toDouble() * 1000).round(), isUtc: true).toLocal();
         }
+
         Uint8List imageBytes = base64Decode(imageBase64);
         UyduGorselSonucu sonuc = UyduGorselSonucu(
           imageBytes: imageBytes,
@@ -166,6 +178,7 @@ class GisService {
           providerTarihi: providerTarihi,
           freshnessStatus: freshnessStatus,
         );
+
         _uyduOnbellek[onbellekAnahtari] = _UyduOnbellekKaydi(
           sonuc: sonuc,
           zamanDamgasi: DateTime.now(),

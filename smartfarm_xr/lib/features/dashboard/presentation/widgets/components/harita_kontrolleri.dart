@@ -22,11 +22,11 @@ class HaritaKontrolleri extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
+        const Text(
           'Harita Stili',
           style: AppTextStyles.headingSmall,
         ),
-        SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.sm),
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
@@ -36,12 +36,12 @@ class HaritaKontrolleri extends StatelessWidget {
             _buildStyleButton('Uydu', 'mapbox://styles/mapbox/satellite-v9'),
           ],
         ),
-        SizedBox(height: AppSpacing.md),
-        Text(
+        const SizedBox(height: AppSpacing.md),
+        const Text(
           'Araçlar',
           style: AppTextStyles.headingSmall,
         ),
-        SizedBox(height: AppSpacing.sm),
+        const SizedBox(height: AppSpacing.sm),
         Wrap(
           spacing: AppSpacing.sm,
           runSpacing: AppSpacing.sm,
@@ -64,7 +64,7 @@ class HaritaKontrolleri extends StatelessWidget {
       style: ElevatedButton.styleFrom(
         backgroundColor: AppColors.backgroundSecondary,
         foregroundColor: AppColors.notrBeyaz,
-        padding: EdgeInsets.symmetric(
+        padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
           vertical: AppSpacing.sm,
         ),
@@ -80,8 +80,8 @@ class HaritaKontrolleri extends StatelessWidget {
       label: Text(label),
       style: OutlinedButton.styleFrom(
         foregroundColor: AppColors.notrBeyaz,
-        side: BorderSide(color: AppColors.gridMor),
-        padding: EdgeInsets.symmetric(
+        side: const BorderSide(color: AppColors.gridMor),
+        padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.md,
           vertical: AppSpacing.sm,
         ),

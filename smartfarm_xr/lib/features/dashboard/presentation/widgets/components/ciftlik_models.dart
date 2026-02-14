@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 // import 'package:mapbox_gl/mapbox_gl.dart'; // Geçici olarak devre dışı - Dart 3.5 uyumluluk sorunu
 import 'package:smartfarm_xr/core/utils/mapbox_types.dart';
 

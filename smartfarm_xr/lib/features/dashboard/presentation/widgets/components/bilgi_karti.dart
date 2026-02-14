@@ -28,7 +28,7 @@ class BilgiKarti extends StatelessWidget {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: EdgeInsets.all(AppSpacing.cardPadding),
+        padding: const EdgeInsets.all(AppSpacing.cardPadding),
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -56,7 +56,7 @@ class BilgiKarti extends StatelessWidget {
                   size: AppSpacing.iconSize,
                 ),
                 Container(
-                  padding: EdgeInsets.symmetric(
+                  padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm,
                     vertical: AppSpacing.xs,
                   ),
@@ -71,7 +71,7 @@ class BilgiKarti extends StatelessWidget {
                 ),
               ],
             ),
-            SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
             Text(
               baslik,
               style: AppTextStyles.cardTitle,

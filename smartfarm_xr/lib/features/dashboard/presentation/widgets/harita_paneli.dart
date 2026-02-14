@@ -78,7 +78,11 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
     if (widget.seciliParsel != oldWidget.seciliParsel) {
        _veriyiIsle(); 
        Future.delayed(const Duration(milliseconds: 100), () {
-         if (widget.seciliParsel != null) _parseleOdaklan(widget.seciliParsel!); else _tumVeriyeOdaklan();
+         if (widget.seciliParsel != null) {
+           _parseleOdaklan(widget.seciliParsel!);
+         } else {
+           _tumVeriyeOdaklan();
+         }
        });
     }
     // Araç seçimi değişince de görünümü güncelle (Nokta moduna geçmek için)
@@ -96,7 +100,11 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
 
   void _haritaHazir() {
     if (widget.dijitalIkizVerisi != null && widget.dijitalIkizVerisi!.isNotEmpty) {
-      if (widget.seciliParsel != null) _parseleOdaklan(widget.seciliParsel!); else _tumVeriyeOdaklan();
+      if (widget.seciliParsel != null) {
+        _parseleOdaklan(widget.seciliParsel!);
+      } else {
+        _tumVeriyeOdaklan();
+      }
     }
   }
 
@@ -243,9 +251,17 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
   bool _isPointInPolygon(LatLng p, List<LatLng> pts) { int c = 0; for (int i = 0; i < pts.length - 1; i++) { if (_rayCastIntersect(p, pts[i], pts[i+1])) c++; } if (_rayCastIntersect(p, pts.last, pts.first)) c++; return c % 2 == 1; }
   bool _rayCastIntersect(LatLng p, LatLng a, LatLng b) { double ay = a.latitude; double by = b.latitude; double ax = a.longitude; double bx = b.longitude; double py = p.latitude; double px = p.longitude; if ((ay > py && by > py) || (ay < py && by < py) || (ax < px && bx < px)) return false; if (ay == by) return false; double m = (by - ay) / (bx - ax); double bee = (-ax) * m + ay; double x = (py - bee) / m; return x > px; }
   void _modalAc(Map<String, dynamic> v) { showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => VarlikDetayModal(veri: v, onKaydet: (v){})); }
-  List<LatLng> _guvenliKoordinatCozucu(List<dynamic> h) { List<LatLng> s = []; try{ for(var n in h) if(n is List && n.length>=2) s.add(LatLng((n[1] as num).toDouble(), (n[0] as num).toDouble())); }catch(e){} return s; }
-  void _onMapPositionChanged(MapCamera c, bool g) { if (_polygons.isNotEmpty && c.zoom >= _gridAcilmaZoomSeviyesi) _gridCizgileriniHesapla(c); else if (_gridLines.isNotEmpty) setState(() => _gridLines = []); }
-  void _gridCizgileriniHesapla(MapCamera c) { LatLngBounds b = c.visibleBounds; List<Polyline> l = []; const double base = 1/111111; double step = base*_gridAraligiMetre; double rad = b.center.latitude*(math.pi/180); double lstep = step/math.cos(rad); Color col = Colors.black.withOpacity(0.25); double sl = (b.west/lstep).floor()*lstep; for(double i=sl; i<=b.east; i+=lstep) l.add(Polyline(points:[LatLng(b.south, i), LatLng(b.north, i)], color:col, strokeWidth:1)); double slat = (b.south/step).floor()*step; for(double i=slat; i<=b.north; i+=step) l.add(Polyline(points:[LatLng(i, b.west), LatLng(i, b.east)], color:col, strokeWidth:1)); setState(()=>_gridLines=l); }
+  List<LatLng> _guvenliKoordinatCozucu(List<dynamic> h) { List<LatLng> s = []; try{ for(var n in h) {
+    if(n is List && n.length>=2) s.add(LatLng((n[1] as num).toDouble(), (n[0] as num).toDouble()));
+  } }catch(e){} return s; }
+  void _onMapPositionChanged(MapCamera c, bool g) { if (_polygons.isNotEmpty && c.zoom >= _gridAcilmaZoomSeviyesi) {
+    _gridCizgileriniHesapla(c);
+  } else if (_gridLines.isNotEmpty) setState(() => _gridLines = []); }
+  void _gridCizgileriniHesapla(MapCamera c) { LatLngBounds b = c.visibleBounds; List<Polyline> l = []; const double base = 1/111111; double step = base*_gridAraligiMetre; double rad = b.center.latitude*(math.pi/180); double lstep = step/math.cos(rad); Color col = Colors.black.withOpacity(0.25); double sl = (b.west/lstep).floor()*lstep; for(double i=sl; i<=b.east; i+=lstep) {
+    l.add(Polyline(points:[LatLng(b.south, i), LatLng(b.north, i)], color:col, strokeWidth:1));
+  } double slat = (b.south/step).floor()*step; for(double i=slat; i<=b.north; i+=step) {
+    l.add(Polyline(points:[LatLng(i, b.west), LatLng(i, b.east)], color:col, strokeWidth:1));
+  } setState(()=>_gridLines=l); }
   void _olcumNoktasiEkle(LatLng nokta) {
     setState(() {
       if (_olcumNoktalari.length >= 2) {

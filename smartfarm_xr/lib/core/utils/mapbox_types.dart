@@ -1,5 +1,6 @@
 /// Geçici Mapbox tipleri - mapbox_gl paketi Dart 3.5 ile uyumlu olmadığı için
 /// Bu dosya geçici olarak oluşturuldu, mapbox_gl güncellendiğinde kaldırılacak
+library;
 
 /// Konum koordinatları
 class LatLng {

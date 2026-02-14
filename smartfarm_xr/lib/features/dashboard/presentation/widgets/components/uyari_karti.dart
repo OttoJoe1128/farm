@@ -40,7 +40,7 @@ class UyariKarti extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.all(AppSpacing.cardPadding),
+      padding: const EdgeInsets.all(AppSpacing.cardPadding),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -70,7 +70,7 @@ class UyariKarti extends StatelessWidget {
                 color: AppColors.notrBeyaz,
                 size: 20,
               ),
-              SizedBox(width: AppSpacing.sm),
+              const SizedBox(width: AppSpacing.sm),
               Expanded(
                 child: Text(
                   baslik,
@@ -84,13 +84,13 @@ class UyariKarti extends StatelessWidget {
               ),
             ],
           ),
-          SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.sm),
           Text(
             mesaj,
             style: AppTextStyles.alertMessage,
           ),
           if (onAksiyon != null) ...[
-            SizedBox(height: AppSpacing.md),
+            const SizedBox(height: AppSpacing.md),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(

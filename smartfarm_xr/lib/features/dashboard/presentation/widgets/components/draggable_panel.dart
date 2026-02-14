@@ -69,8 +69,8 @@ class _DraggablePanelState extends State<DraggablePanel> {
             children: [
               // Başlık çubuğu
               Container(
-                padding: EdgeInsets.all(AppSpacing.md),
-                decoration: BoxDecoration(
+                padding: const EdgeInsets.all(AppSpacing.md),
+                decoration: const BoxDecoration(
                   color: AppColors.backgroundSecondary,
                   borderRadius: BorderRadius.only(
                     topLeft: Radius.circular(AppSpacing.cardBorderRadius),
@@ -107,7 +107,7 @@ class _DraggablePanelState extends State<DraggablePanel> {
               Flexible(
                 child: SingleChildScrollView(
                   child: Padding(
-                    padding: EdgeInsets.all(AppSpacing.md),
+                    padding: const EdgeInsets.all(AppSpacing.md),
                     child: widget.child,
                   ),
                 ),

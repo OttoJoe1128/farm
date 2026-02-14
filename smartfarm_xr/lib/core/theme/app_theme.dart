@@ -41,13 +41,13 @@ class AppTheme {
       ),
       
       // Card teması
-      cardTheme: CardThemeData(
+      cardTheme: CardTheme(
         color: AppColors.backgroundCard,
         elevation: AppSpacing.elevationLow,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSpacing.cardBorderRadius),
         ),
-        margin: EdgeInsets.all(AppSpacing.cardMargin),
+        margin: const EdgeInsets.all(AppSpacing.cardMargin),
       ),
       
       // Elevated Button teması
@@ -55,7 +55,7 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.gridMor,
           foregroundColor: AppColors.notrBeyaz,
-          padding: EdgeInsets.symmetric(
+          padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.buttonPadding,
             vertical: AppSpacing.buttonPadding,
           ),
@@ -71,7 +71,7 @@ class AppTheme {
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: AppColors.kartSu,
-          padding: EdgeInsets.symmetric(
+          padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.buttonPadding,
             vertical: AppSpacing.buttonPadding,
           ),
@@ -84,7 +84,7 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: AppColors.notrBeyaz,
           side: const BorderSide(color: AppColors.gridMor),
-          padding: EdgeInsets.symmetric(
+          padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.buttonPadding,
             vertical: AppSpacing.buttonPadding,
           ),
@@ -100,7 +100,7 @@ class AppTheme {
         style: IconButton.styleFrom(
           foregroundColor: AppColors.notrBeyaz,
           backgroundColor: AppColors.backgroundCard,
-          padding: EdgeInsets.all(AppSpacing.buttonPadding),
+          padding: const EdgeInsets.all(AppSpacing.buttonPadding),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(AppSpacing.buttonBorderRadius),
           ),
@@ -127,7 +127,7 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppSpacing.buttonBorderRadius),
           borderSide: const BorderSide(color: AppColors.error, width: 2),
         ),
-        contentPadding: EdgeInsets.all(AppSpacing.buttonPadding),
+        contentPadding: const EdgeInsets.all(AppSpacing.buttonPadding),
         labelStyle: AppTextStyles.bodyMedium,
         hintStyle: AppTextStyles.bodyMedium.copyWith(
           color: AppColors.notrGri500,
@@ -146,7 +146,7 @@ class AppTheme {
         backgroundColor: AppColors.backgroundSecondary,
         selectedColor: AppColors.gridMor,
         labelStyle: AppTextStyles.bodySmall,
-        padding: EdgeInsets.symmetric(
+        padding: const EdgeInsets.symmetric(
           horizontal: AppSpacing.sm,
           vertical: AppSpacing.xs,
         ),
@@ -166,7 +166,7 @@ class AppTheme {
       ),
       
       // Dialog teması
-      dialogTheme: DialogThemeData(
+      dialogTheme: DialogTheme(
         backgroundColor: AppColors.backgroundCard,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(AppSpacing.cardBorderRadius),

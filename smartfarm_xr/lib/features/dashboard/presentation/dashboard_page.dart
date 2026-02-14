@@ -291,7 +291,7 @@ class _DashboardPageState extends State<DashboardPage> {
               )
             ),
           
-          if (_haritaVerisi == null) Center(child: GlassContainer(child: Padding(padding: const EdgeInsets.all(20.0), child: Column(mainAxisSize: MainAxisSize.min, children: const [Icon(Icons.map, size: 50, color: Colors.white54), SizedBox(height: 10), Text("Başlamak için sol üstten bir parsel dosyası yükleyin.", style: TextStyle(color: Colors.white))])))),
+          if (_haritaVerisi == null) const Center(child: GlassContainer(child: Padding(padding: EdgeInsets.all(20.0), child: Column(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.map, size: 50, color: Colors.white54), SizedBox(height: 10), Text("Başlamak için sol üstten bir parsel dosyası yükleyin.", style: TextStyle(color: Colors.white))])))),
         ],
       ),
     );

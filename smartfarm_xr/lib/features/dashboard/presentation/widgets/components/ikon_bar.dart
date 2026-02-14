@@ -25,7 +25,7 @@ class IkonBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: EdgeInsets.symmetric(
+      padding: const EdgeInsets.symmetric(
         horizontal: AppSpacing.panelPadding,
         vertical: AppSpacing.sm,
       ),
@@ -37,50 +37,50 @@ class IkonBar extends StatelessWidget {
             tool: 'map',
             label: 'Harita',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.park,
             tool: 'tree',
             label: 'Ağaç',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.fence,
             tool: 'fence',
             label: 'Çit',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.home,
             tool: 'barn',
             label: 'Bina',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.sensors,
             tool: 'sensor',
             label: 'Sensör',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.camera_alt,
             tool: 'camera',
             label: 'Kamera',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildIconButton(
             icon: Icons.water_drop,
             tool: 'pump',
             label: 'Pompa',
           ),
-          SizedBox(width: AppSpacing.lg),
+          const SizedBox(width: AppSpacing.lg),
           _buildToggleButton(
             icon: Icons.settings,
             isActive: showHaritaKontrolleri,
             onTap: onToggleHaritaKontrolleri,
             label: 'Kontroller',
           ),
-          SizedBox(width: AppSpacing.sm),
+          const SizedBox(width: AppSpacing.sm),
           _buildToggleButton(
             icon: Icons.add_location,
             isActive: showKonumButonlari,
@@ -109,7 +109,7 @@ class IkonBar extends StatelessWidget {
           onTap: () => onSelect(isSelected ? null : tool),
           borderRadius: BorderRadius.circular(AppSpacing.buttonBorderRadius),
           child: Container(
-            padding: EdgeInsets.all(AppSpacing.sm),
+            padding: const EdgeInsets.all(AppSpacing.sm),
             decoration: BoxDecoration(
               border: Border.all(
                 color: isSelected
@@ -149,7 +149,7 @@ class IkonBar extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(AppSpacing.buttonBorderRadius),
           child: Container(
-            padding: EdgeInsets.all(AppSpacing.sm),
+            padding: const EdgeInsets.all(AppSpacing.sm),
             decoration: BoxDecoration(
               border: Border.all(
                 color: isActive

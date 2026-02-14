@@ -72,10 +72,10 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.warning, color: Colors.orange),
-            const SizedBox(width: AppSpacing.small),
+            SizedBox(width: AppSpacing.small),
             Text('Tasarımı Sil'),
           ],
         ),
@@ -83,12 +83,12 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: Text('İptal'),
+            child: const Text('İptal'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text('Sil'),
+            child: const Text('Sil'),
           ),
         ],
       ),
@@ -128,7 +128,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('❌ Silme işlemi başarısız'),
             backgroundColor: Colors.red,
           ),
@@ -184,7 +184,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         }
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('❌ Tasarım yüklenemedi'),
             backgroundColor: Colors.red,
           ),
@@ -205,10 +205,10 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Row(
+        title: const Row(
           children: [
             Icon(Icons.agriculture, color: AppColors.primary),
-            const SizedBox(width: AppSpacing.small),
+            SizedBox(width: AppSpacing.small),
             Text('Arazilerim', style: AppTextStyles.h2),
           ],
         ),
@@ -217,7 +217,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         actions: [
           IconButton(
             onPressed: _loadDesigns,
-            icon: Icon(Icons.refresh, color: AppColors.primary),
+            icon: const Icon(Icons.refresh, color: AppColors.primary),
             tooltip: 'Yenile',
           ),
         ],
@@ -245,7 +245,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red),
+            const Icon(Icons.error_outline, size: 64, color: Colors.red),
             const SizedBox(height: AppSpacing.medium),
             Text(
               'Hata: $_error',
@@ -255,7 +255,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
             const SizedBox(height: AppSpacing.medium),
             ElevatedButton(
               onPressed: _loadDesigns,
-              child: Text('Tekrar Dene'),
+              child: const Text('Tekrar Dene'),
             ),
           ],
         ),
@@ -267,14 +267,14 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.agriculture, size: 64, color: AppColors.primary),
+            const Icon(Icons.agriculture, size: 64, color: AppColors.primary),
             const SizedBox(height: AppSpacing.medium),
-            Text(
+            const Text(
               'Henüz kayıtlı tasarımınız yok',
               style: AppTextStyles.h3,
             ),
             const SizedBox(height: AppSpacing.small),
-            Text(
+            const Text(
               'Yeni bir çiftlik tasarımı oluşturmak için\nharita sayfasına gidin',
               style: AppTextStyles.body,
               textAlign: TextAlign.center,
@@ -282,8 +282,8 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
             const SizedBox(height: AppSpacing.large),
             ElevatedButton.icon(
               onPressed: () => Navigator.pop(context),
-              icon: Icon(Icons.add),
-              label: Text('Yeni Tasarım Oluştur'),
+              icon: const Icon(Icons.add),
+              label: const Text('Yeni Tasarım Oluştur'),
             ),
           ],
         ),
@@ -375,7 +375,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
                         ),
                       ),
                     ],
-                    child: Icon(Icons.more_vert, color: AppColors.textSecondary),
+                    child: const Icon(Icons.more_vert, color: AppColors.textSecondary),
                   ),
                 ],
               ),
@@ -389,7 +389,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
                     child: _buildStatItem(
                       Icons.grid_on,
                       'Grid',
-                      '${totalCells} hücre',
+                      '$totalCells hücre',
                     ),
                   ),
                   Expanded(
@@ -421,7 +421,7 @@ class _ArazilerimSayfasiState extends State<ArazilerimSayfasi> {
                   ),
                   child: Row(
                     children: [
-                      Icon(Icons.map, color: AppColors.primary, size: 16),
+                      const Icon(Icons.map, color: AppColors.primary, size: 16),
                       const SizedBox(width: 8),
                       Text(
                         'TKGM verisi mevcut (${geojsonParcels.length} parsel)',

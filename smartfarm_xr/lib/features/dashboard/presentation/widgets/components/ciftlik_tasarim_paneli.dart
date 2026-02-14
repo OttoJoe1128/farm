@@ -38,13 +38,13 @@ class CiftlikTasarimPaneli extends StatelessWidget {
         children: [
           // Üst bilgi çubuğu
           Container(
-            padding: EdgeInsets.all(AppSpacing.md),
+            padding: const EdgeInsets.all(AppSpacing.md),
             color: AppColors.backgroundSecondary,
             child: Row(
               children: [
-                Icon(Icons.agriculture, color: AppColors.primary),
-                SizedBox(width: AppSpacing.sm),
-                Text(
+                const Icon(Icons.agriculture, color: AppColors.primary),
+                const SizedBox(width: AppSpacing.sm),
+                const Text(
                   'Çiftlik Tasarımı',
                   style: AppTextStyles.headingMedium,
                 ),
@@ -56,7 +56,7 @@ class CiftlikTasarimPaneli extends StatelessWidget {
                   ),
                 if (geojsonParcels != null && geojsonParcels!.isNotEmpty)
                   Padding(
-                    padding: EdgeInsets.only(left: AppSpacing.md),
+                    padding: const EdgeInsets.only(left: AppSpacing.md),
                     child: Text(
                       'GeoJSON: ${geojsonParcels!.length} parsel',
                       style: AppTextStyles.caption,
@@ -73,24 +73,24 @@ class CiftlikTasarimPaneli extends StatelessWidget {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Icon(
+                    const Icon(
                       Icons.grid_on,
                       size: 64,
                       color: AppColors.notrGri600,
                     ),
-                    SizedBox(height: AppSpacing.md),
-                    Text(
+                    const SizedBox(height: AppSpacing.md),
+                    const Text(
                       'Grid Tasarım Arayüzü',
                       style: AppTextStyles.headingMedium,
                     ),
-                    SizedBox(height: AppSpacing.sm),
-                    Text(
+                    const SizedBox(height: AppSpacing.sm),
+                    const Text(
                       'Grid sistemi burada gösterilecek',
                       style: AppTextStyles.bodyMedium,
                     ),
                     if (initialGrid != null && initialGrid!.isNotEmpty)
                       Padding(
-                        padding: EdgeInsets.only(top: AppSpacing.md),
+                        padding: const EdgeInsets.only(top: AppSpacing.md),
                         child: Text(
                           '${initialGrid!.length} satır x ${initialGrid!.first.length} sütun',
                           style: AppTextStyles.caption,

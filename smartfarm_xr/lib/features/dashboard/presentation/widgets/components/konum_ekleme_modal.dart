@@ -43,11 +43,11 @@ class _KonumEklemeModalState extends State<KonumEklemeModal> {
   Widget build(BuildContext context) {
     return AlertDialog(
       backgroundColor: AppColors.backgroundCard,
-      title: Row(
+      title: const Row(
         children: [
           Icon(Icons.add_location_alt, color: AppColors.primary),
           SizedBox(width: AppSpacing.sm),
-          const Text('Yeni Konum Ekle'),
+          Text('Yeni Konum Ekle'),
         ],
       ),
       content: Column(
@@ -58,12 +58,12 @@ class _KonumEklemeModalState extends State<KonumEklemeModal> {
             'Konum: ${widget.position.latitude.toStringAsFixed(6)}, ${widget.position.longitude.toStringAsFixed(6)}',
             style: AppTextStyles.caption,
           ),
-          SizedBox(height: AppSpacing.md),
-          Text(
+          const SizedBox(height: AppSpacing.md),
+          const Text(
             'Tür',
             style: AppTextStyles.bodyMedium,
           ),
-          SizedBox(height: AppSpacing.sm),
+          const SizedBox(height: AppSpacing.sm),
           Wrap(
             spacing: AppSpacing.sm,
             runSpacing: AppSpacing.sm,
@@ -74,7 +74,7 @@ class _KonumEklemeModalState extends State<KonumEklemeModal> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(type['icon'] as IconData, size: 16),
-                    SizedBox(width: AppSpacing.xs),
+                    const SizedBox(width: AppSpacing.xs),
                     Text(type['label'] as String),
                   ],
                 ),
@@ -91,13 +91,13 @@ class _KonumEklemeModalState extends State<KonumEklemeModal> {
               );
             }).toList(),
           ),
-          SizedBox(height: AppSpacing.md),
+          const SizedBox(height: AppSpacing.md),
           TextField(
             controller: _labelController,
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               labelText: 'Etiket (Opsiyonel)',
               hintText: 'Örn: Ana Bina, Sensör 1',
-              border: const OutlineInputBorder(),
+              border: OutlineInputBorder(),
             ),
           ),
         ],
