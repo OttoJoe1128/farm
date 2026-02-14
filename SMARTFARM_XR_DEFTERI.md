@@ -31,14 +31,20 @@ Bu dosya projedeki tek resmi tanitim + durum + TODO kaynagidir.
 
 ### Flutter (donanim kisiti nedeniyle zorunlu)
 ```bash
-flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0 --web-renderer html
+flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0
 ```
 
 ### Backend
 ```bash
-cd /home/ottojoe/farm/farm/backend
+cd /home/ottojoe/Desktop/farm-main/farm/backend
 python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
+
+### IDX Uygulama Acilis Sirasi (onerilen)
+1. Backend'i `8000` portunda baslat.
+2. Tarayicida backend onizleme URL'ini (`https://8000-...cloudworkstations.dev`) bir kez acip yetki ver.
+3. Ardindan Flutter web-server'i `8080` portunda baslat ve `https://8080-...cloudworkstations.dev` adresinden ac.
+4. Dosya yuklemede hata olursa ekrandaki `API:` satirindan aktif backend adresini dogrula.
 
 ### Opsiyonel Env Ayarlari
 - `MAPBOX_ACCESS_TOKEN`

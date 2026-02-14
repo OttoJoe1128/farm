@@ -48,6 +48,22 @@ class GisService {
     String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
     return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi/api/v1';
   }
+  static String _backendAcilisAdresiOlustur() {
+    if (!kIsWeb) {
+      return 'http://127.0.0.1:8000';
+    }
+    Uri mevcutAdres = Uri.base;
+    String host = mevcutAdres.host;
+    if (host == 'localhost' || host == '127.0.0.1') {
+      return '${mevcutAdres.scheme}://$host:8000';
+    }
+    if (host.contains('cloudworkstations.dev')) {
+      host = host.replaceFirst(RegExp(r'^\d+-'), '8000-');
+      return '${mevcutAdres.scheme}://$host';
+    }
+    String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
+    return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi';
+  }
 
   final Dio _dio = Dio(BaseOptions(
     baseUrl: _baseUrlOlustur(),
@@ -58,6 +74,7 @@ class GisService {
   String? _sonHata;
 
   String get aktifBaseUrl => _dio.options.baseUrl;
+  String get backendAcilisAdresi => _backendAcilisAdresiOlustur();
   String? get sonHata => _sonHata;
 
   // HATA DÜZELTİLDİ: 'Future<void>' yerine 'Future<List<dynamic>?>' yapıldı.
@@ -109,7 +126,14 @@ class GisService {
         if (e.response?.data != null) {
           ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
         }
-        _sonHata = "Sunucu erişim hatası: $ayrinti";
+        if (kIsWeb) {
+          _sonHata =
+              "Sunucu erişim hatası: $ayrinti\n"
+              "IDX kullanıyorsan önce backend önizleme adresini bir kez açıp yetki ver:\n"
+              "$backendAcilisAdresi";
+        } else {
+          _sonHata = "Sunucu erişim hatası: $ayrinti";
+        }
       } else {
         _sonHata = "Beklenmeyen hata: $e";
       }
