@@ -40,16 +40,6 @@ class AppTheme {
         titleTextStyle: AppTextStyles.headingMedium,
       ),
       
-      // Card teması
-      cardTheme: CardThemeData(
-        color: AppColors.backgroundCard,
-        elevation: AppSpacing.elevationLow,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.cardBorderRadius),
-        ),
-        margin: const EdgeInsets.all(AppSpacing.cardMargin),
-      ),
-      
       // Elevated Button teması
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
@@ -163,16 +153,6 @@ class AppTheme {
           borderRadius: BorderRadius.circular(AppSpacing.buttonBorderRadius),
         ),
         behavior: SnackBarBehavior.floating,
-      ),
-      
-      // Dialog teması
-      dialogTheme: DialogThemeData(
-        backgroundColor: AppColors.backgroundCard,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(AppSpacing.cardBorderRadius),
-        ),
-        titleTextStyle: AppTextStyles.headingMedium,
-        contentTextStyle: AppTextStyles.bodyMedium,
       ),
       
       // Bottom Sheet teması
