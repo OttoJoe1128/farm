@@ -51,7 +51,16 @@ class _DashboardPageState extends State<DashboardPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Parseller yüklendi. Harita otomatik odaklandı."), backgroundColor: Colors.blue));
       _uyduyuGetir(sessizCalis: true);
+      return;
     }
+    String hataMesaji = _gisService.sonHata ?? "Parsel yükleme başarısız.";
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text("$hataMesaji\nAPI: ${_gisService.aktifBaseUrl}"),
+        backgroundColor: Colors.redAccent,
+        duration: const Duration(seconds: 6),
+      ),
+    );
   }
 
   void _parselSecildi(Map<String, dynamic> parsel) {

@@ -55,45 +55,64 @@ class GisService {
   ));
   final Map<String, _UyduOnbellekKaydi> _uyduOnbellek = <String, _UyduOnbellekKaydi>{};
   static const Duration _uyduOnbellekSuresi = Duration(hours: 24);
+  String? _sonHata;
+
+  String get aktifBaseUrl => _dio.options.baseUrl;
+  String? get sonHata => _sonHata;
 
   // HATA DÜZELTİLDİ: 'Future<void>' yerine 'Future<List<dynamic>?>' yapıldı.
   Future<List<dynamic>?> haritaYukle() async {
+    _sonHata = null;
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['geojson', 'kml', 'json', 'shp'],
         allowMultiple: true,
       );
-      if (result != null) {
-        List<dynamic> tumParseller = <dynamic>[];
-        for (PlatformFile secilenDosya in result.files) {
-          dynamic fileData;
-          if (kIsWeb) {
-            fileData = secilenDosya.bytes;
-          } else {
-            fileData = secilenDosya.path;
-          }
-          if (fileData == null) {
-            continue;
-          }
-          FormData formData = FormData.fromMap({
-            "file": kIsWeb
-                ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
-                : await MultipartFile.fromFile(fileData, filename: secilenDosya.name),
-          });
-          debugPrint("--- LOG: ${secilenDosya.name} sunucuya gönderiliyor... ---");
-          Response<dynamic> response = await _dio.post('/gis/upload-map', data: formData);
-          if (response.statusCode == 200 && response.data != null && response.data['data'] is List) {
-            List<dynamic> dosyaParselleri = List<dynamic>.from(response.data['data'] as List<dynamic>);
-            tumParseller.addAll(dosyaParselleri);
-          }
-        }
-        if (tumParseller.isNotEmpty) {
-          debugPrint("--- LOG: Toplam ${tumParseller.length} parsel yüklendi ---");
-          return tumParseller;
-        }
+      if (result == null) {
+        _sonHata = "Dosya seçimi iptal edildi.";
+        return null;
       }
+      List<dynamic> tumParseller = <dynamic>[];
+      for (PlatformFile secilenDosya in result.files) {
+        dynamic fileData;
+        if (kIsWeb) {
+          fileData = secilenDosya.bytes;
+        } else {
+          fileData = secilenDosya.path;
+        }
+        if (fileData == null) {
+          continue;
+        }
+        FormData formData = FormData.fromMap({
+          "file": kIsWeb
+              ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
+              : await MultipartFile.fromFile(fileData, filename: secilenDosya.name),
+        });
+        debugPrint("--- LOG: ${secilenDosya.name} sunucuya gönderiliyor... ---");
+        Response<dynamic> response = await _dio.post('/gis/upload-map', data: formData);
+        if (response.statusCode == 200 && response.data != null && response.data['data'] is List) {
+          List<dynamic> dosyaParselleri = List<dynamic>.from(response.data['data'] as List<dynamic>);
+          tumParseller.addAll(dosyaParselleri);
+          continue;
+        }
+        _sonHata = "Yükleme başarısız: durum=${response.statusCode}";
+      }
+      if (tumParseller.isNotEmpty) {
+        debugPrint("--- LOG: Toplam ${tumParseller.length} parsel yüklendi ---");
+        return tumParseller;
+      }
+      _sonHata ??= "Yüklenen dosyalardan parsel okunamadı.";
     } catch (e) {
+      if (e is DioException) {
+        String? ayrinti = e.message;
+        if (e.response?.data != null) {
+          ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
+        }
+        _sonHata = "Sunucu erişim hatası: $ayrinti";
+      } else {
+        _sonHata = "Beklenmeyen hata: $e";
+      }
       debugPrint("HATA: $e");
     }
     return null;

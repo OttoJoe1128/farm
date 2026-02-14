@@ -8,12 +8,19 @@ import 'firebase_options.dart';
 Future<void> main() async {
   runZonedGuarded(() async {
     WidgetsFlutterBinding.ensureInitialized();
-    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
     FlutterError.onError = (FlutterErrorDetails details) {
       FlutterError.presentError(details);
       debugPrint('Flutter Error: ${details.exception}');
       debugPrint('Stack trace: ${details.stack}');
     };
+    unawaited(
+      Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform).catchError(
+        (Object error, StackTrace stack) {
+          debugPrint('Firebase init hatası: $error');
+          debugPrint('Firebase init stack: $stack');
+        },
+      ),
+    );
     runApp(const SmartFarmXRApp());
   }, (Object error, StackTrace stack) {
     debugPrint('Zone Error: $error');
