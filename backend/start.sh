@@ -7,7 +7,11 @@ PID=$(lsof -t -i:8000 2>/dev/null); [ -n "$PID" ] && kill $PID 2>/dev/null || tr
 sleep 1
 PYTHON="${PWD}/.venv/bin/python3"
 if [ ! -x "$PYTHON" ]; then
-  echo "Hata: .venv yok. Once: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements-backend.txt"
+  echo "Hata: .venv yok. Once: python3 -m venv .venv && .venv/bin/pip install -r requirements-backend.txt"
+  exit 1
+fi
+if ! "$PYTHON" -c "import uvicorn" 2>/dev/null; then
+  echo "Hata: uvicorn yok. Calistir: .venv/bin/pip install -r requirements-backend.txt"
   exit 1
 fi
 echo "Backend baslatiliyor: http://0.0.0.0:8000"
