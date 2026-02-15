@@ -2,6 +2,11 @@
 # Android Studio: ortam acildiktan sonra .idx/install_android_studio.sh calistir
 { pkgs, ... }: {
   channel = "stable-24.05";
+  env = {
+    CMAKE_MAKE_PROGRAM = "${pkgs.ninja}/bin/ninja";
+    CC = "${pkgs.clang}/bin/clang";
+    CXX = "${pkgs.clang}/bin/clang++";
+  };
   packages = [
     pkgs.python311
     pkgs.python311Packages.fastapi
@@ -13,7 +18,9 @@
     pkgs.wget
     pkgs.unzip
     pkgs.cmake
+    pkgs.ninja
     pkgs.clang
+    pkgs.gcc
     # Emulator icin X11 (libX11.so.6 vb.)
     pkgs.xorg.libX11
     pkgs.xorg.libXext
