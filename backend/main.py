@@ -750,6 +750,79 @@ def delete_asset(index: int):
     save_db(db)
     return {"status": "deleted"}
 
+@app.post("/api/v1/gis/upload-assets")
+async def upload_assets(file: UploadFile = File(...)):
+    """Toplu varlik ice aktarma. GeoJSON (Point verisi) veya CSV (ad,tip,enlem,boylam,iot_bagli) destekler."""
+    temp_path: str = f"temp_assets_{file.filename}"
+    try:
+        content_bytes: bytes = await file.read()
+        with open(temp_path, "wb") as temp_file:
+            temp_file.write(content_bytes)
+        filename_lower: str = (file.filename or "").lower()
+        data: List[Dict[str, Any]] = []
+        if filename_lower.endswith(".csv"):
+            import csv
+            text_content: str = content_bytes.decode("utf-8-sig")
+            reader = csv.DictReader(text_content.strip().splitlines())
+            for row_index, row in enumerate(reader):
+                try:
+                    ad: str = row.get("ad", row.get("name", f"Varlik {row_index + 1}"))
+                    tip: str = row.get("tip", row.get("type", "agac"))
+                    enlem: float = float(row.get("enlem", row.get("lat", row.get("latitude", 0))))
+                    boylam: float = float(row.get("boylam", row.get("lng", row.get("longitude", 0))))
+                    iot_str: str = str(row.get("iot_bagli", row.get("iot_connected", "false"))).lower()
+                    iot_bagli: bool = iot_str in ["true", "1", "evet", "yes"]
+                    if enlem == 0 and boylam == 0:
+                        continue
+                    data.append({
+                        "name": ad,
+                        "type": "Point",
+                        "geometry": {"type": "Point", "coordinates": [boylam, enlem]},
+                        "style": {"color": "#FF5722", "icon": tip},
+                        "properties": {"iot_connected": iot_bagli, "import_source": file.filename},
+                    })
+                except Exception:
+                    continue
+        else:
+            try:
+                import geopandas as gpd
+                gdf = gpd.read_file(temp_path)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Dosya okunamadi: {e}")
+            if gdf is None or gdf.empty:
+                raise HTTPException(status_code=400, detail="Dosyada gecerli geometri bulunamadi.")
+            if gdf.crs is not None and str(gdf.crs) != "EPSG:4326":
+                gdf = gdf.to_crs("EPSG:4326")
+            for index, row in gdf.iterrows():
+                geom = row.geometry
+                if geom is None or geom.geom_type != "Point":
+                    continue
+                props: Dict[str, Any] = {}
+                for key, value in row.drop(labels=["geometry"]).items():
+                    try:
+                        json.dumps(value)
+                        props[str(key)] = value
+                    except Exception:
+                        props[str(key)] = str(value)
+                feature_name: str = str(props.get("name", props.get("ad", f"Varlik {index + 1}")))
+                feature_tip: str = str(props.get("tip", props.get("type", "agac")))
+                data.append({
+                    "name": feature_name,
+                    "type": "Point",
+                    "geometry": geom.__geo_interface__,
+                    "style": {"color": "#FF5722", "icon": feature_tip},
+                    "properties": {"iot_connected": False, "import_source": file.filename, **props},
+                })
+        if len(data) == 0:
+            raise HTTPException(status_code=400, detail="Dosyada islenebilir Point verisi bulunamadi.")
+        current_db = load_db()
+        current_db.extend(data)
+        save_db(current_db)
+        return {"status": "success", "data": data}
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
 @app.post("/api/v1/gis/fetch-satellite-image")
 def fetch_satellite_image(request: AnalysisRequest):
     try:

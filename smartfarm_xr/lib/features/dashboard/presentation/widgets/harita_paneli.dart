@@ -25,6 +25,7 @@ class HaritaPaneli extends StatefulWidget {
   final Function(String, LatLng)? onVarlikEklendi; 
   final Function(int, LatLng)? onVarlikTasindi; 
   final Function(int)? onVarlikSilindi;
+  final Function(Map<String, dynamic>)? onVarlikGuncellendi;
 
   const HaritaPaneli({
     super.key, 
@@ -37,6 +38,7 @@ class HaritaPaneli extends StatefulWidget {
     this.onVarlikEklendi,
     this.onVarlikTasindi,
     this.onVarlikSilindi,
+    this.onVarlikGuncellendi,
   });
 
   @override
@@ -128,6 +130,11 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
       return;
     }
     if (widget.seciliArac != null) {
+      // Otomatik parsel secimi: tiklanan noktanin hangi parselde oldugunu bul
+      Map<String, dynamic>? bulunanParsel = _noktaninParseliniBul(hedefNokta);
+      if (bulunanParsel != null && widget.onParselSecildi != null) {
+        widget.onParselSecildi!(bulunanParsel);
+      }
       if (widget.onVarlikEklendi != null) {
         widget.onVarlikEklendi!(widget.seciliArac!, hedefNokta);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Yeni ${widget.seciliArac} eklendi."), backgroundColor: Colors.green, duration: const Duration(milliseconds: 800)));
@@ -174,13 +181,28 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
 
         if (geomType == 'Polygon') {
            List pointsRaw = item['geometry']['coordinates'][0];
-           List<LatLng> points = pointsRaw.map((e) => LatLng(e[1], e[0])).toList();
+           List<LatLng> points = pointsRaw.map<LatLng>((e) => LatLng((e[1] as num).toDouble(), (e[0] as num).toDouble())).toList();
            tumNoktalar.addAll(points);
-           
            bool isSelected = (widget.seciliParsel != null && item['name'] == widget.seciliParsel!['name']);
            yeniPoligonlar.add(Polygon(points: points, color: isSelected ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.1), borderColor: isSelected ? Colors.green : Colors.grey, borderStrokeWidth: 2, label: item['name'], labelStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)));
-           LatLng center = LatLng(points[0].latitude, points[0].longitude); 
+           LatLng center = _centroidHesapla(points);
            yeniMarkerlar.add(Marker(point: center, width: 100, height: 100, child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: () { if (widget.onParselSecildi != null) widget.onParselSecildi!(item); }, child: Container(color: Colors.transparent))));
+        }
+        else if (geomType == 'MultiPolygon') {
+           List<dynamic> polygonlar = List<dynamic>.from(item['geometry']['coordinates'] as List);
+           List<LatLng> multiTumNoktalar = [];
+           bool isSelected = (widget.seciliParsel != null && item['name'] == widget.seciliParsel!['name']);
+           for (dynamic polygon in polygonlar) {
+             List<dynamic> pointsRaw = List<dynamic>.from((polygon as List)[0] as List);
+             List<LatLng> points = pointsRaw.map<LatLng>((dynamic e) => LatLng((e[1] as num).toDouble(), (e[0] as num).toDouble())).toList();
+             tumNoktalar.addAll(points);
+             multiTumNoktalar.addAll(points);
+             yeniPoligonlar.add(Polygon(points: points, color: isSelected ? Colors.green.withOpacity(0.3) : Colors.grey.withOpacity(0.1), borderColor: isSelected ? Colors.green : Colors.grey, borderStrokeWidth: 2, label: item['name'], labelStyle: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold)));
+           }
+           if (multiTumNoktalar.isNotEmpty) {
+             LatLng center = _centroidHesapla(multiTumNoktalar);
+             yeniMarkerlar.add(Marker(point: center, width: 100, height: 100, child: GestureDetector(behavior: HitTestBehavior.translucent, onTap: () { if (widget.onParselSecildi != null) widget.onParselSecildi!(item); }, child: Container(color: Colors.transparent))));
+           }
         }
         else if (geomType == 'Point') {
            List coords = item['geometry']['coordinates'];
@@ -237,8 +259,35 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
 
   // ... (Matematiksel Fonksiyonlar - Değişmedi) ...
   void _tumVeriyeOdaklan() { if (_odakNoktalari.isNotEmpty && mounted) _mapController.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(_odakNoktalari), padding: const EdgeInsets.all(50))); }
-  void _parseleOdaklan(Map<String, dynamic> p) { try { Map g = p['geometry']; List r = g['coordinates']; List<LatLng> pts = _guvenliKoordinatCozucu(r[0]); if(mounted) _mapController.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(pts), padding: const EdgeInsets.all(50))); } catch(e){} }
+  void _parseleOdaklan(Map<String, dynamic> p) {
+    try {
+      Map g = p['geometry'];
+      String geomType = (g['type'] ?? '').toString();
+      List<LatLng> pts = [];
+      if (geomType == 'MultiPolygon') {
+        List<dynamic> polygonlar = List<dynamic>.from(g['coordinates'] as List);
+        for (dynamic polygon in polygonlar) {
+          pts.addAll(_guvenliKoordinatCozucu(List<dynamic>.from((polygon as List)[0] as List)));
+        }
+      } else {
+        List r = g['coordinates'];
+        pts = _guvenliKoordinatCozucu(r[0]);
+      }
+      if (pts.isNotEmpty && mounted) {
+        _mapController.fitCamera(CameraFit.bounds(bounds: LatLngBounds.fromPoints(pts), padding: const EdgeInsets.all(50)));
+      }
+    } catch(e){}
+  }
   LatLng _pikseldenKoordinata(Offset localOffset, Size mapSize) { final centerLatLng = _mapController.camera.center; final zoom = _mapController.camera.zoom; final scale = math.pow(2.0, zoom).toDouble(); final worldSize = 256.0 * scale; final siny = math.sin(centerLatLng.latitude * math.pi / 180.0); final centerWorldX = (centerLatLng.longitude + 180.0) / 360.0 * worldSize; final centerWorldY = (0.5 - math.log((1.0 + siny) / (1.0 - siny)) / (4.0 * math.pi)) * worldSize; final dx = localOffset.dx - (mapSize.width / 2.0); final dy = localOffset.dy - (mapSize.height / 2.0); final targetWorldX = centerWorldX + dx; final targetWorldY = centerWorldY + dy; final targetLng = (targetWorldX / worldSize) * 360.0 - 180.0; final n = math.pi - (2.0 * math.pi * targetWorldY) / worldSize; final targetLat = 180.0 / math.pi * math.atan(0.5 * (math.exp(n) - math.exp(-n))); return LatLng(targetLat, targetLng); }
+  LatLng _centroidHesapla(List<LatLng> noktalar) {
+    double toplamEnlem = 0;
+    double toplamBoylam = 0;
+    for (LatLng nokta in noktalar) {
+      toplamEnlem += nokta.latitude;
+      toplamBoylam += nokta.longitude;
+    }
+    return LatLng(toplamEnlem / noktalar.length, toplamBoylam / noktalar.length);
+  }
   bool _noktaArazideMi(LatLng p) {
     if (_polygons.isEmpty) return false;
     for (Polygon polygon in _polygons) {
@@ -248,9 +297,31 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
     }
     return false;
   }
+  /// Tiklanan noktanin hangi parsel verisine ait oldugunu bulur.
+  /// Polygon ve MultiPolygon destekler. Bulamazsa null doner.
+  Map<String, dynamic>? _noktaninParseliniBul(LatLng nokta) {
+    if (widget.dijitalIkizVerisi == null) return null;
+    for (dynamic item in widget.dijitalIkizVerisi!) {
+      if (item is! Map<String, dynamic>) continue;
+      String geomType = (item['geometry']?['type'] ?? '').toString();
+      if (geomType == 'Polygon') {
+        List<dynamic> pointsRaw = List<dynamic>.from(item['geometry']['coordinates'][0] as List);
+        List<LatLng> points = pointsRaw.map<LatLng>((dynamic e) => LatLng((e[1] as num).toDouble(), (e[0] as num).toDouble())).toList();
+        if (_isPointInPolygon(nokta, points)) return item;
+      } else if (geomType == 'MultiPolygon') {
+        List<dynamic> polygonlar = List<dynamic>.from(item['geometry']['coordinates'] as List);
+        for (dynamic polygon in polygonlar) {
+          List<dynamic> pointsRaw = List<dynamic>.from((polygon as List)[0] as List);
+          List<LatLng> points = pointsRaw.map<LatLng>((dynamic e) => LatLng((e[1] as num).toDouble(), (e[0] as num).toDouble())).toList();
+          if (_isPointInPolygon(nokta, points)) return item;
+        }
+      }
+    }
+    return null;
+  }
   bool _isPointInPolygon(LatLng p, List<LatLng> pts) { int c = 0; for (int i = 0; i < pts.length - 1; i++) { if (_rayCastIntersect(p, pts[i], pts[i+1])) c++; } if (_rayCastIntersect(p, pts.last, pts.first)) c++; return c % 2 == 1; }
   bool _rayCastIntersect(LatLng p, LatLng a, LatLng b) { double ay = a.latitude; double by = b.latitude; double ax = a.longitude; double bx = b.longitude; double py = p.latitude; double px = p.longitude; if ((ay > py && by > py) || (ay < py && by < py) || (ax < px && bx < px)) return false; if (ay == by) return false; double m = (by - ay) / (bx - ax); double bee = (-ax) * m + ay; double x = (py - bee) / m; return x > px; }
-  void _modalAc(Map<String, dynamic> v) { showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => VarlikDetayModal(veri: v, onKaydet: (v){})); }
+  void _modalAc(Map<String, dynamic> v) { showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => VarlikDetayModal(veri: v, onKaydet: (Map<String, dynamic> guncellenmisVeri) { if (widget.onVarlikGuncellendi != null) widget.onVarlikGuncellendi!(guncellenmisVeri); })); }
   List<LatLng> _guvenliKoordinatCozucu(List<dynamic> h) { List<LatLng> s = []; try{ for(var n in h) {
     if(n is List && n.length>=2) s.add(LatLng((n[1] as num).toDouble(), (n[0] as num).toDouble()));
   } }catch(e){} return s; }

@@ -85,18 +85,60 @@ class _DashboardPageState extends State<DashboardPage> {
     if (_haritaVerisi != null) {
       List<dynamic> guncelListe = List.from(_haritaVerisi!);
       Map<String, dynamic> lokalMetreOzellikleri = _lokalMetreOzellikleriniOlustur(konum);
-      guncelListe.add({
+      Map<String, dynamic> yeniVarlik = {
         "name": "Yeni ${tip.toUpperCase()}",
         "type": "Point",
         "geometry": { "type": "Point", "coordinates": [konum.longitude, konum.latitude] },
         "style": {"color": "#FF0000", "icon": tip},
         "properties": {"iot_connected": false, ...lokalMetreOzellikleri}
-      });
+      };
+      guncelListe.add(yeniVarlik);
       setState(() {
         _haritaVerisi = guncelListe;
-        _seciliArac = null; // Eklendikten sonra aracı bırak
+        // Arac secili kalsin - surekli ekleme modu (araciniza tekrar tiklayin birakma icin)
       });
+      // Backend'e kaydet
+      _gisService.varlikEkle(yeniVarlik);
     }
+  }
+
+  void _varlikGuncellendi(Map<String, dynamic> guncellenmisVeri) {
+    if (_haritaVerisi == null) return;
+    int index = -1;
+    for (int i = 0; i < _haritaVerisi!.length; i++) {
+      if (identical(_haritaVerisi![i], guncellenmisVeri)) {
+        index = i;
+        break;
+      }
+    }
+    if (index == -1) {
+      // identical ile bulamazsa, koordinat eslesmesi dene
+      for (int i = 0; i < _haritaVerisi!.length; i++) {
+        dynamic item = _haritaVerisi![i];
+        if (item is Map<String, dynamic> &&
+            item['geometry']?['type'] == 'Point' &&
+            guncellenmisVeri['geometry']?['type'] == 'Point') {
+          List<dynamic>? c1 = item['geometry']?['coordinates'] as List<dynamic>?;
+          List<dynamic>? c2 = guncellenmisVeri['geometry']?['coordinates'] as List<dynamic>?;
+          if (c1 != null && c2 != null && c1.length >= 2 && c2.length >= 2 &&
+              (c1[0] as num).toDouble() == (c2[0] as num).toDouble() &&
+              (c1[1] as num).toDouble() == (c2[1] as num).toDouble()) {
+            index = i;
+            break;
+          }
+        }
+      }
+    }
+    setState(() {
+      if (index >= 0) {
+        _haritaVerisi![index] = guncellenmisVeri;
+      }
+      _haritaKey = UniqueKey();
+    });
+    if (index >= 0) {
+      _gisService.varlikGuncelle(index, guncellenmisVeri);
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Varlık güncellendi."), backgroundColor: Colors.green));
   }
 
   void _varlikTasindi(int index, LatLng yeniKonum) {
@@ -108,6 +150,7 @@ class _DashboardPageState extends State<DashboardPage> {
       Map<String, dynamic> lokalMetreOzellikleri = _lokalMetreOzellikleriniOlustur(yeniKonum);
       guncelListe[index]['properties'] = {...mevcutOzellikler, ...lokalMetreOzellikleri};
       setState(() => _haritaVerisi = guncelListe);
+      _gisService.varlikGuncelle(index, Map<String, dynamic>.from(guncelListe[index] as Map));
     }
   }
 
@@ -117,6 +160,7 @@ class _DashboardPageState extends State<DashboardPage> {
       List<dynamic> guncelListe = List.from(_haritaVerisi!);
       guncelListe.removeAt(index); 
       setState(() => _haritaVerisi = guncelListe);
+      _gisService.varlikSil(index);
     }
   }
 
@@ -190,6 +234,49 @@ class _DashboardPageState extends State<DashboardPage> {
     return [xMetre, yMetre];
   }
 
+  // --- FAZ 3: TOPLU VARLIK ICE AKTARMA ---
+  bool _varlikYukleniyor = false;
+  void _varlikDosyasiYukle() async {
+    setState(() => _varlikYukleniyor = true);
+    List<dynamic>? gelenVarliklar = await _gisService.varlikDosyasiYukle();
+    if (!mounted) return;
+    setState(() => _varlikYukleniyor = false);
+    if (gelenVarliklar != null && gelenVarliklar.isNotEmpty) {
+      setState(() {
+        _haritaVerisi = [...?_haritaVerisi, ...gelenVarliklar];
+        _haritaKey = UniqueKey();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("${gelenVarliklar.length} varlık başarıyla yüklendi."), backgroundColor: Colors.green));
+      return;
+    }
+    String hataMesaji = _gisService.sonHata ?? "Varlık yükleme başarısız.";
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hataMesaji), backgroundColor: Colors.redAccent, duration: const Duration(seconds: 4)));
+  }
+
+  // --- FAZ 4: AI ANALIZ ---
+  bool _aiTaraniyor = false;
+  void _aiTaramaBaslat() async {
+    List<Map<String, dynamic>> parselGeometrileri = _parselGeometrileriniTopla();
+    if (parselGeometrileri.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("AI tarama için parsel bulunamadı."), backgroundColor: Colors.redAccent));
+      return;
+    }
+    setState(() => _aiTaraniyor = true);
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("AI taraması başlatıldı... Bu biraz sürebilir."), backgroundColor: Colors.blue));
+    List<dynamic>? tespiEdilenvVarliklar = await _gisService.aiAnaliz(parselGeometrileri: parselGeometrileri);
+    if (!mounted) return;
+    setState(() => _aiTaraniyor = false);
+    if (tespiEdilenvVarliklar != null && tespiEdilenvVarliklar.isNotEmpty) {
+      setState(() {
+        _haritaVerisi = [...?_haritaVerisi, ...tespiEdilenvVarliklar];
+        _haritaKey = UniqueKey();
+      });
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("AI: ${tespiEdilenvVarliklar.length} varlık tespit edildi."), backgroundColor: Colors.green));
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("AI taraması sonuç bulamadı veya hata oluştu."), backgroundColor: Colors.orangeAccent));
+  }
+
   Map<String, dynamic> _lokalMetreOzellikleriniOlustur(LatLng nokta) {
     if (_seciliParsel == null) {
       return {};
@@ -246,6 +333,7 @@ class _DashboardPageState extends State<DashboardPage> {
               onVarlikEklendi: _varlikEklendi,
               onVarlikTasindi: _varlikTasindi,
               onVarlikSilindi: _varlikSilindi,
+              onVarlikGuncellendi: _varlikGuncellendi,
             ), 
           ),
           Positioned(
@@ -253,12 +341,15 @@ class _DashboardPageState extends State<DashboardPage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
                     if (editorModu) _aksiyonButonu(Icons.arrow_back, "Genel Bakış", Colors.redAccent, _genelBakisaDon)
                     else _aksiyonButonu(Icons.upload_file, "Parsel Yükle", Colors.black54, _dosyaYukleVeCiz),
-                    if (editorModu) const SizedBox(width: 8),
                     if (editorModu) _aksiyonButonu(Icons.satellite_alt, _uyduYukleniyor ? "Yükleniyor..." : "Uyduyu Getir", Colors.green.shade700, _uyduYukleniyor ? () {} : () => _uyduyuGetir(), onLongPress: _uyduYukleniyor ? null : () => _uyduyuGetir(zorlaYenile: true)),
+                    if (editorModu) _aksiyonButonu(Icons.playlist_add, _varlikYukleniyor ? "Yükleniyor..." : "Varlık Yükle", Colors.orange.shade700, _varlikYukleniyor ? () {} : _varlikDosyasiYukle),
+                    if (editorModu) _aksiyonButonu(Icons.auto_fix_high, _aiTaraniyor ? "Taranıyor..." : "AI Tara", Colors.purple.shade700, _aiTaraniyor ? () {} : _aiTaramaBaslat),
                   ],
                 ),
                 if (editorModu)

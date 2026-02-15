@@ -249,4 +249,113 @@ class GisService {
     }
     return null;
   }
+
+  // --- VARLIK CRUD ---
+
+  Future<bool> varlikEkle(Map<String, dynamic> varlik) async {
+    try {
+      Response<dynamic> response = await _dio.post('/gis/add-asset', data: varlik);
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("VARLIK EKLEME HATASI: $e");
+      return false;
+    }
+  }
+
+  Future<bool> varlikGuncelle(int index, Map<String, dynamic> varlik) async {
+    try {
+      Response<dynamic> response = await _dio.put('/gis/update-asset/$index', data: varlik);
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("VARLIK GUNCELLEME HATASI: $e");
+      return false;
+    }
+  }
+
+  Future<bool> varlikSil(int index) async {
+    try {
+      Response<dynamic> response = await _dio.delete('/gis/delete-asset/$index');
+      return response.statusCode == 200;
+    } catch (e) {
+      debugPrint("VARLIK SILME HATASI: $e");
+      return false;
+    }
+  }
+
+  // --- TOPLU VARLIK ICE AKTARMA (Faz 3) ---
+
+  Future<List<dynamic>?> varlikDosyasiYukle() async {
+    _sonHata = null;
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['geojson', 'json', 'csv'],
+        allowMultiple: false,
+      );
+      if (result == null || result.files.isEmpty) {
+        _sonHata = "Dosya seçimi iptal edildi.";
+        return null;
+      }
+      PlatformFile secilenDosya = result.files.first;
+      dynamic fileData;
+      if (kIsWeb) {
+        fileData = secilenDosya.bytes;
+      } else {
+        fileData = secilenDosya.path;
+      }
+      if (fileData == null) {
+        _sonHata = "Dosya verisi okunamadı.";
+        return null;
+      }
+      FormData formData = FormData.fromMap({
+        "file": kIsWeb
+            ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
+            : await MultipartFile.fromFile(fileData, filename: secilenDosya.name),
+      });
+      debugPrint("--- LOG: Varlık dosyası yükleniyor: ${secilenDosya.name} ---");
+      Response<dynamic> response = await _dio.post('/gis/upload-assets', data: formData);
+      if (response.statusCode == 200 && response.data != null && response.data['data'] is List) {
+        List<dynamic> varliklar = List<dynamic>.from(response.data['data'] as List<dynamic>);
+        debugPrint("--- LOG: ${varliklar.length} varlık yüklendi ---");
+        return varliklar;
+      }
+      _sonHata = "Varlık yükleme başarısız: durum=${response.statusCode}";
+    } catch (e) {
+      if (e is DioException) {
+        String? ayrinti = e.message;
+        if (e.response?.data != null) {
+          ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
+        }
+        _sonHata = "Sunucu erişim hatası: $ayrinti";
+      } else {
+        _sonHata = "Beklenmeyen hata: $e";
+      }
+      debugPrint("VARLIK DOSYA YUKLEME HATASI: $e");
+    }
+    return null;
+  }
+
+  // --- AI ANALIZ (Faz 4) ---
+
+  Future<List<dynamic>?> aiAnaliz({required List<Map<String, dynamic>> parselGeometrileri}) async {
+    try {
+      Map<String, dynamic> requestBody = <String, dynamic>{
+        'parcel_geometries': parselGeometrileri,
+      };
+      Response<dynamic> response = await _dio.post(
+        '/gis/analyze-satellite',
+        data: requestBody,
+        options: Options(
+          receiveTimeout: const Duration(seconds: 120),
+          sendTimeout: const Duration(seconds: 15),
+        ),
+      );
+      if (response.statusCode == 200 && response.data != null && response.data['assets'] is List) {
+        return List<dynamic>.from(response.data['assets'] as List<dynamic>);
+      }
+    } catch (e) {
+      debugPrint("AI ANALIZ HATASI: $e");
+    }
+    return null;
+  }
 }
