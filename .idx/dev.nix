@@ -12,6 +12,8 @@
     pkgs.jdk17
     pkgs.wget
     pkgs.unzip
+    pkgs.cmake
+    pkgs.clang
     # Emulator icin X11 (libX11.so.6 vb.)
     pkgs.xorg.libX11
     pkgs.xorg.libXext
