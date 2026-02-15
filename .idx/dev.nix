@@ -1,6 +1,7 @@
-# Saha uygulamasi (SmartFarm Field) + backend icin minimal ortam
-{ pkgs, ... }: {
+# Saha uygulamasi (SmartFarm Field) + backend + Android Studio (emulator)
+{ pkgs, config, ... }: {
   channel = "stable-24.05";
+  nixpkgs.config.allowUnfree = true;
   packages = [
     pkgs.python311
     pkgs.python311Packages.fastapi
@@ -8,6 +9,8 @@
     pkgs.python311Packages.python-multipart
     pkgs.python311Packages.pip
     pkgs.flutter
+    pkgs.jdk17
+    pkgs.android-studio
   ];
   idx = {
     extensions = [
