@@ -105,6 +105,35 @@ Emülatör backend’e `10.0.2.2:8000` üzerinden erişir. Linux’ta backend `1
 
 IDX/Nix ortamında Android SDK kuruluysa, komut satırından örnek bir AVD oluşturup çalıştırabilirsin (SDK’daki `avdmanager` / `emulator` yolu ortama göre değişir). Alternatif olarak bilgisayarında Android Studio kuruluysa AVD Manager’dan emülatör oluşturup başlatıp `flutter run` ile bağlanabilirsin.
 
+### 2e. IDX: Ortam açıldıktan sonra Android SDK kurulumu (script)
+
+`dev.nix` ortamı Android Studio/unfree içermediği için ortamın build olması hedeflenir; Android SDK ve emülatör ortam **açıldıktan sonra** script ile kurulur.
+
+1. Workspace’i aç, ortamın “Ready” olmasını bekle.
+2. Terminalde:
+
+```bash
+cd ~/farm
+chmod +x .idx/install_android_studio.sh
+.idx/install_android_studio.sh
+```
+
+3. Script bittikten sonra aynı oturumda (veya yeni terminalde env’i yükleyip):
+
+```bash
+export ANDROID_HOME=$HOME/Android/Sdk
+export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+```
+
+4. AVD oluştur ve başlat:
+
+```bash
+echo no | avdmanager create avd -n Pixel_34 -k "system-images;android-34;google_apis;x86_64" -d pixel
+emulator -avd Pixel_34 -no-snapshot-load &
+```
+
+5. Emülatör açıldıktan sonra `flutter devices` ile görünüp `flutter run` ile uygulamayı çalıştırabilirsin.
+
 ---
 
 ## 3. APK üretme
