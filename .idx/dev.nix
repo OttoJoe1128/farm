@@ -5,13 +5,23 @@
     pkgs.python311Packages.fastapi
     pkgs.python311Packages.uvicorn
     pkgs.python311Packages.python-multipart
-    pkgs.python311Packages.pip  # Bunu da ekleyelim ne olur ne olmaz
+    pkgs.python311Packages.pip
     pkgs.flutter
+    pkgs.jdk17
   ];
-  idx.previews = {
-    enable = true;
+  idx = {
+    extensions = [
+      "Dart-Code.dart-code"
+      "Dart-Code.flutter"
+    ];
     previews = {
-      # Burası kalsın
+      enable = true;
+      previews = {};
+    };
+    workspace = {
+      onCreate = {
+        field-pub-get = "cd smartfarm_field && flutter pub get";
+      };
     };
   };
 }
