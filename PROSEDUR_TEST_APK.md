@@ -134,6 +134,20 @@ emulator -avd Pixel_34 -no-snapshot-load &
 
 5. Emülatör açıldıktan sonra `flutter devices` ile görünüp `flutter run` ile uygulamayı çalıştırabilirsin.
 
+**Sorun giderme (2e):**
+
+- **"Package path is not valid. Valid system image paths are: null"**  
+  Lisanslar onaylanmamış veya sistem imajı inmemiş olabilir. Şunu çalıştırıp tekrar AVD oluştur:
+
+  ```bash
+  yes | sdkmanager --sdk_root=$ANDROID_HOME --licenses
+  sdkmanager --sdk_root=$ANDROID_HOME "system-images;android-34;google_apis;x86_64"
+  echo no | avdmanager create avd -n Pixel_34 -k "system-images;android-34;google_apis;x86_64" -d pixel
+  ```
+
+- **"libX11.so.6: cannot open shared object file"**  
+  Ortamda X11 kütüphaneleri yok. `dev.nix` içine X11 paketleri eklendi; değişikliği alıp IDX ortamını **Rebuild** et (Environment → Rebuild). Sonra emülatörü tekrar başlat. IDX headless ise emülatör penceresi açılmayabilir; bu durumda APK build edip fiziksel cihazda test edebilirsin.
+
 ---
 
 ## 3. APK üretme

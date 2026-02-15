@@ -28,8 +28,10 @@ else
 fi
 rm -rf "$TMP_UNZIP"
 export PATH="$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+echo "Lisanslar kabul ediliyor..."
+yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses || true
 echo "SDK paketleri yukleniyor..."
-yes | sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "emulator" "platforms;android-34" "system-images;android-34;google_apis;x86_64" 2>/dev/null || true
+sdkmanager --sdk_root="$ANDROID_HOME" "platform-tools" "emulator" "platforms;android-34" "system-images;android-34;google_apis;x86_64"
 echo "ANDROID_HOME=$ANDROID_HOME"
 echo "Kurulum bitti. Shell'e ekleyin: export ANDROID_HOME=$ANDROID_HOME"
 echo "AVD olusturmak icin: avdmanager create avd -n Pixel_34 -k 'system-images;android-34;google_apis;x86_64' -d pixel_7"

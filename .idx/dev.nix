@@ -12,6 +12,14 @@
     pkgs.jdk17
     pkgs.wget
     pkgs.unzip
+    # Emulator icin X11 (libX11.so.6 vb.)
+    pkgs.xorg.libX11
+    pkgs.xorg.libXext
+    pkgs.xorg.libxcb
+    pkgs.xorg.libXrandr
+    pkgs.xorg.libXi
+    pkgs.xorg.libXrender
+    pkgs.xorg.libXtst
   ];
   idx = {
     extensions = [
