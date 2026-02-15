@@ -23,7 +23,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://127.0.0.1:8080",
+        "http://localhost:8080",
+        "https://127.0.0.1:8080",
+        "https://localhost:8080",
+    ],
+    allow_origin_regex=r"^https://(8000|8080)-.*\.cloudworkstations\.dev$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

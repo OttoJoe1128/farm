@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:dio/browser.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
@@ -76,6 +77,13 @@ class GisService {
   String get aktifBaseUrl => _dio.options.baseUrl;
   String get backendAcilisAdresi => _backendAcilisAdresiOlustur();
   String? get sonHata => _sonHata;
+
+  GisService() {
+    if (kIsWeb) {
+      BrowserHttpClientAdapter webAdapter = _dio.httpClientAdapter as BrowserHttpClientAdapter;
+      webAdapter.withCredentials = true;
+    }
+  }
 
   // HATA DÜZELTİLDİ: 'Future<void>' yerine 'Future<List<dynamic>?>' yapıldı.
   Future<List<dynamic>?> haritaYukle() async {
