@@ -752,9 +752,45 @@ async def upload_map(file: UploadFile = File(...)):
 @app.post("/api/v1/gis/add-asset")
 def add_asset(asset: Asset):
     db = load_db()
-    db.append(asset.dict())
+    asset_data = asset.dict()
+    # Saha uygulamasindan gelen kaynak bilgisini ekle
+    if "source" not in asset_data.get("properties", {}):
+        asset_data.setdefault("properties", {})["source"] = "web_app"
+    db.append(asset_data)
     save_db(db)
     return {"status": "success"}
+
+class BatchAssetRequest(BaseModel):
+    """Toplu varlik ekleme istegi - tek istekte 50'ye kadar varlik"""
+    assets: List[Asset]
+
+@app.post("/api/v1/gis/batch-add-assets")
+def batch_add_assets(request: BatchAssetRequest):
+    """Toplu varlik ekleme - saha uygulamasindan gelen verileri toplu kaydeder.
+    Tek istekte maksimum 50 varlik kabul eder."""
+    if len(request.assets) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Tek istekte maksimum 50 varlik gonderilebilir."
+        )
+    db = load_db()
+    added_count: int = 0
+    errors: List[str] = []
+    for i, asset in enumerate(request.assets):
+        try:
+            asset_data = asset.dict()
+            asset_data.setdefault("properties", {})["source"] = asset_data.get("properties", {}).get("source", "field_app")
+            db.append(asset_data)
+            added_count += 1
+        except Exception as e:
+            errors.append(f"Varlik {i}: {str(e)}")
+    save_db(db)
+    return {
+        "status": "success",
+        "added_count": added_count,
+        "total_requested": len(request.assets),
+        "errors": errors
+    }
 
 @app.put("/api/v1/gis/update-asset/{index}")
 def update_asset(index: int, asset: Asset):
