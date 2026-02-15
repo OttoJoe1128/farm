@@ -1,11 +1,50 @@
 # SmartFarm Field – Test ve APK Prosedürü
 
-**Yerel bilgisayarda her şeyi kurup denemek için:** `smartfarm_field/YEREL_KURULUM.md` (IDX yok, hepsi burada).
+**Saha uygulaması ayrı repoda ise:** Ayrı repo adımları için `AYRI_REPO_SAHA.md`; APK build ve test o ayrı reponun kök dizininde yapılır.
 
-Bu dokümanda: backend kurulumu, emülatörde test, APK üretme adımları var (IDX dahil).
+**Yerel bilgisayarda her şeyi kurup denemek için:** `smartfarm_field/YEREL_KURULUM.md` (bu repoda hâlâ varsa; ayrı repoda ise o reponun README / YEREL_KURULUM’u).
+
+Bu dokümanda: backend kurulumu, emülatörde test, APK üretme adımları var (IDX dahil). Saha uygulaması ayrı repoya taşındıysa backend + XR bu repoda kalır; Field ayrı repoda derlenir ve aynı backend’e bağlanır.
 
 **IDX’te repo güncellerken** `git pull` “Your local changes would be overwritten” derse:  
 `git checkout -- .idx/install_android_studio.sh` (veya ilgili dosya) sonra `git pull origin main`.
+
+---
+
+## Backend + Android emülatör – tam sırayla (IDX)
+
+Aşağıdaki komutları **sırayla** uygula. Backend bir terminalde açık kalacak, emülatör ve Flutter başka terminal(ler)de.
+
+| Sıra | Ne yapıyorsun | Komutlar |
+|------|----------------|----------|
+| **1** | Repo güncelle | `cd ~/farm` → `git pull origin main` |
+| **2** | Backend venv (ilk sefer) | `cd ~/farm/backend` → `python3 -m venv .venv` → `.venv/bin/pip install -r requirements-backend.txt` |
+| **3** | Backend’i başlat **(bu terminal açık kalsın)** | `cd ~/farm/backend` → `./start.sh` |
+| **4** | **Yeni terminal** aç; Android PATH | `export ANDROID_HOME=$HOME/Android/Sdk` → `export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH` |
+| **5** | Emülatörü başlat | `emulator -avd Pixel_34 -no-snapshot-load &` (AVD adı farklıysa `emulator -list-avds` ile bak) |
+| **6** | Emülatör açılana kadar bekle; Flutter çalıştır | `cd ~/farm/smartfarm_field` → `flutter pub get` → `flutter devices` → `flutter run` |
+
+**Tek blokta (kopyala-yapıştır) – sadece 3, 4, 5, 6:**
+
+```bash
+# 3) Terminal 1 – Backend (bu terminal açık kalsın)
+cd ~/farm/backend && ./start.sh
+```
+
+```bash
+# 4–6) Terminal 2 – PATH, emülatör, Flutter
+cd ~/farm
+export ANDROID_HOME=$HOME/Android/Sdk
+export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH
+emulator -avd Pixel_34 -no-snapshot-load &
+# Emülatör penceresi açılana kadar birkaç saniye bekle, sonra:
+cd ~/farm/smartfarm_field
+flutter pub get
+flutter devices
+flutter run
+```
+
+**Not:** Android SDK/AVD daha önce kurulmadıysa önce `.idx/install_android_studio.sh` çalıştır (PROSEDUR 2e).
 
 ---
 
