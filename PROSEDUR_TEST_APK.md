@@ -2,6 +2,9 @@
 
 Bu dokümanda: backend kurulumu, emülatörde test, APK üretme adımları var.
 
+**IDX’te repo güncellerken** `git pull` “Your local changes would be overwritten” derse:  
+`git checkout -- .idx/install_android_studio.sh` (veya ilgili dosya) sonra `git pull origin main`.
+
 ---
 
 ## 1. Backend kurulumu ve çalıştırma
@@ -147,6 +150,20 @@ emulator -avd Pixel_34 -no-snapshot-load &
 
 - **"libX11.so.6: cannot open shared object file"**  
   Ortamda X11 kütüphaneleri yok. `dev.nix` içine X11 paketleri eklendi; değişikliği alıp IDX ortamını **Rebuild** et (Environment → Rebuild). Sonra emülatörü tekrar başlat. IDX headless ise emülatör penceresi açılmayabilir; bu durumda APK build edip fiziksel cihazda test edebilirsin.
+
+- **"No space left on device"**  
+  IDX workspace diskte yer kalmamış. Sistem imajı (~1 GB+) atlanıp sadece APK derlenebilir:  
+  `SKIP_SYSTEM_IMAGE=1 .idx/install_android_studio.sh`  
+  Aynı terminalde `export ANDROID_HOME=$HOME/Android/Sdk` ve `export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH` yap. Emülatör olmadan doğrudan `cd ~/farm/smartfarm_field && flutter build apk --release` ile APK al.
+
+- **"sdkmanager: command not found"**  
+  Script’i çalıştırdığın terminalde PATH zaten ayarlı; **yeni açtığın terminalde** mutlaka şunu yaz:  
+  `export ANDROID_HOME=$HOME/Android/Sdk` ve  
+  `export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH`  
+  Nix’ın önerdiği `pkgs.python312Packages.sdkmanager` **Android SDK değil**; onu kurma, Android’in kendi sdkmanager’ını kullan (yukarıdaki PATH ile).
+
+- **"mv: inter-device move failed"**  
+  Script güncellendi (artık `cp` kullanıyor). `git pull` alıp script’i tekrar çalıştır. Önceki yarım kurulumu silmek için: `rm -rf ~/Android/Sdk/cmdline-tools/latest` sonra script’i tekrar çalıştır.
 
 ---
 
