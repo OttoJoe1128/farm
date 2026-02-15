@@ -8,13 +8,14 @@
     pkgs.python311Packages.pip
     pkgs.flutter
     pkgs.jdk17
-    # Flutter Linux build
+    # Flutter Linux build (CMake CXX=clang++ bekliyor)
     pkgs.cmake
     pkgs.ninja
     pkgs.pkg-config
     pkgs.gtk3
     pkgs.glib
     pkgs.gcc
+    pkgs.clang
   ];
   idx = {
     extensions = [
