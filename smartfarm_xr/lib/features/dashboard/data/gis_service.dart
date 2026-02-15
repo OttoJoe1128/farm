@@ -33,37 +33,35 @@ class _UyduOnbellekKaydi {
 }
 
 class GisService {
+  /// API base URL'ini belirler.
+  /// Tek port cozumu: Frontend ve backend ayni origin'den sunuluyorsa
+  /// (IDX'te 8000 portu), relative URL '/api/v1' yeterlidir.
+  /// Farkli portlardaysa (localhost gelistirme) cross-origin URL olusturulur.
   static String _baseUrlOlustur() {
     if (!kIsWeb) {
       return 'http://127.0.0.1:8000/api/v1';
     }
     Uri mevcutAdres = Uri.base;
     String host = mevcutAdres.host;
+    // IDX tek port cozumu: 8000 portundan sunuluyorsa relative URL kullan
+    if (host.contains('cloudworkstations.dev') && host.startsWith('8000-')) {
+      return '/api/v1';
+    }
+    // Localhost: ayni porttaysa (tek port) relative, farkli portsa cross-origin
     if (host == 'localhost' || host == '127.0.0.1') {
+      String currentPort = mevcutAdres.hasPort ? mevcutAdres.port.toString() : '';
+      if (currentPort == '8000') {
+        return '/api/v1';
+      }
       return '${mevcutAdres.scheme}://$host:8000/api/v1';
     }
+    // IDX 8080 portu (eski yontem, fallback)
     if (host.contains('cloudworkstations.dev')) {
       host = host.replaceFirst(RegExp(r'^\d+-'), '8000-');
       return '${mevcutAdres.scheme}://$host/api/v1';
     }
     String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
     return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi/api/v1';
-  }
-  static String _backendAcilisAdresiOlustur() {
-    if (!kIsWeb) {
-      return 'http://127.0.0.1:8000';
-    }
-    Uri mevcutAdres = Uri.base;
-    String host = mevcutAdres.host;
-    if (host == 'localhost' || host == '127.0.0.1') {
-      return '${mevcutAdres.scheme}://$host:8000';
-    }
-    if (host.contains('cloudworkstations.dev')) {
-      host = host.replaceFirst(RegExp(r'^\d+-'), '8000-');
-      return '${mevcutAdres.scheme}://$host';
-    }
-    String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
-    return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi';
   }
 
   final Dio _dio = Dio(BaseOptions(
@@ -75,11 +73,11 @@ class GisService {
   String? _sonHata;
 
   String get aktifBaseUrl => _dio.options.baseUrl;
-  String get backendAcilisAdresi => _backendAcilisAdresiOlustur();
   String? get sonHata => _sonHata;
 
   GisService() {
     if (kIsWeb) {
+      // Cross-origin isteklerde credential gonderimi (fallback icin)
       BrowserHttpClientAdapter webAdapter = _dio.httpClientAdapter as BrowserHttpClientAdapter;
       webAdapter.withCredentials = true;
     }
@@ -134,14 +132,7 @@ class GisService {
         if (e.response?.data != null) {
           ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
         }
-        if (kIsWeb) {
-          _sonHata =
-              "Sunucu erişim hatası: $ayrinti\n"
-              "IDX kullanıyorsan önce backend önizleme adresini bir kez açıp yetki ver:\n"
-              "$backendAcilisAdresi";
-        } else {
-          _sonHata = "Sunucu erişim hatası: $ayrinti";
-        }
+        _sonHata = "Sunucu erişim hatası: $ayrinti";
       } else {
         _sonHata = "Beklenmeyen hata: $e";
       }

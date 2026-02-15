@@ -29,22 +29,42 @@ Bu dosya projedeki tek resmi tanitim + durum + TODO kaynagidir.
 
 ## 3) Kritik Calistirma Notlari
 
-### Flutter (donanim kisiti nedeniyle zorunlu)
-```bash
-flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0
-```
+### TEK PORT COZUMU (IDX / Cloud Workstations icin onerilen)
+IDX ortaminda iki farkli port (8000/8080) CORS ve yetki sorunu yaratir.
+Cozum: Flutter'i build edip backend uzerinden sun. Her sey tek portta calisir.
 
-### Backend
 ```bash
-cd /home/ottojoe/Desktop/farm-main/farm/backend
+# 1. Flutter web build olustur
+cd ~/farm/smartfarm_xr
+flutter build web
+
+# 2. Backend'i baslat (Flutter web dosyalarini da otomatik sunar)
+cd ~/farm/backend
 python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### IDX Uygulama Acilis Sirasi (onerilen)
-1. Backend'i `8000` portunda baslat.
-2. Tarayicida backend onizleme URL'ini (`https://8000-...cloudworkstations.dev`) bir kez acip yetki ver.
-3. Ardindan Flutter web-server'i `8080` portunda baslat ve `https://8080-...cloudworkstations.dev` adresinden ac.
-4. Dosya yuklemede hata olursa ekrandaki `API:` satirindan aktif backend adresini dogrula.
+Sonra tarayicida tek adres:
+```
+https://8000-<IDX-id>.cluster-<cluster-id>.cloudworkstations.dev/
+```
+- `/` -> Flutter uygulamasi
+- `/docs` -> FastAPI Swagger UI
+- `/api/v1/...` -> API endpointleri
+
+### Alternatif: Localhost gelistirme (IDX disinda)
+```bash
+# Terminal 1: Backend
+cd backend && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+
+# Terminal 2: Flutter (debug modu)
+cd smartfarm_xr && flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0
+```
+
+### IDX Uygulama Acilis Sirasi (tek port)
+1. `flutter build web` calistir (smartfarm_xr klasorunde).
+2. Backend'i `8000` portunda baslat.
+3. Tarayicida `https://8000-...cloudworkstations.dev/` ac. Hem uygulama hem API ayni adreste.
+4. API testi icin: `https://8000-...cloudworkstations.dev/docs`
 
 ### Opsiyonel Env Ayarlari
 - `MAPBOX_ACCESS_TOKEN`

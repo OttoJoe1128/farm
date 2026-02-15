@@ -1,5 +1,7 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Tuple, Optional
 import json
@@ -34,6 +36,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Flutter web build dizini (tek port cozumu) ---
+FLUTTER_WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "smartfarm_xr", "build", "web")
+FLUTTER_WEB_DIR = os.path.abspath(FLUTTER_WEB_DIR)
 
 DB_FILE = "digital_twin_db.json"
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN", "")
@@ -860,3 +866,99 @@ def analyze_satellite(request: AnalysisRequest):
     except Exception as e:
         print(f"HATA: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- TEK PORT COZUMU: Flutter web dosyalarini 8000 portundan sun ---
+# Bu sayede IDX ortaminda CORS ve yetki sorunlari ortadan kalkar.
+# Kullanim: IDX'te "flutter build web" calistir, sonra sadece 8000 portunu ac.
+if os.path.isdir(FLUTTER_WEB_DIR):
+    print(f"✅ Flutter web build bulundu: {FLUTTER_WEB_DIR}")
+    print(f"   Frontend ve Backend tek portta sunuluyor (8000).")
+
+    # Flutter web icindeki statik dosyalar (js, css, assets vb.)
+    app.mount("/assets", StaticFiles(directory=os.path.join(FLUTTER_WEB_DIR, "assets")), name="flutter_assets")
+
+    # Flutter web'in ihtiyac duydugu root dosyalar (favicon, manifest, flutter.js vb.)
+    @app.get("/flutter.js")
+    async def flutter_js():
+        return FileResponse(os.path.join(FLUTTER_WEB_DIR, "flutter.js"), media_type="application/javascript")
+
+    @app.get("/flutter_bootstrap.js")
+    async def flutter_bootstrap_js():
+        return FileResponse(os.path.join(FLUTTER_WEB_DIR, "flutter_bootstrap.js"), media_type="application/javascript")
+
+    @app.get("/flutter_service_worker.js")
+    async def flutter_service_worker_js():
+        path = os.path.join(FLUTTER_WEB_DIR, "flutter_service_worker.js")
+        if os.path.exists(path):
+            return FileResponse(path, media_type="application/javascript")
+        raise HTTPException(status_code=404)
+
+    @app.get("/main.dart.js")
+    async def main_dart_js():
+        path = os.path.join(FLUTTER_WEB_DIR, "main.dart.js")
+        if os.path.exists(path):
+            return FileResponse(path, media_type="application/javascript")
+        raise HTTPException(status_code=404)
+
+    @app.get("/manifest.json")
+    async def manifest_json():
+        path = os.path.join(FLUTTER_WEB_DIR, "manifest.json")
+        if os.path.exists(path):
+            return FileResponse(path, media_type="application/json")
+        raise HTTPException(status_code=404)
+
+    @app.get("/favicon.png")
+    async def favicon_png():
+        path = os.path.join(FLUTTER_WEB_DIR, "favicon.png")
+        if os.path.exists(path):
+            return FileResponse(path, media_type="image/png")
+        raise HTTPException(status_code=404)
+
+    @app.get("/icons/{icon_path:path}")
+    async def flutter_icons(icon_path: str):
+        path = os.path.join(FLUTTER_WEB_DIR, "icons", icon_path)
+        if os.path.exists(path):
+            return FileResponse(path)
+        raise HTTPException(status_code=404)
+
+    @app.get("/canvaskit/{file_path:path}")
+    async def canvaskit_files(file_path: str):
+        path = os.path.join(FLUTTER_WEB_DIR, "canvaskit", file_path)
+        if os.path.exists(path):
+            return FileResponse(path)
+        raise HTTPException(status_code=404)
+
+    # SPA catch-all: API olmayan tum GET isteklerinde index.html don
+    @app.get("/{full_path:path}")
+    async def serve_flutter_spa(request: Request, full_path: str):
+        # API istekleri buraya dusmemeli (zaten yukarida tanimli)
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="API endpoint bulunamadi.")
+        # Dosya varsa dogrudan sun
+        file_path = os.path.join(FLUTTER_WEB_DIR, full_path)
+        if os.path.isfile(file_path):
+            return FileResponse(file_path)
+        # Yoksa SPA icin index.html don
+        index_path = os.path.join(FLUTTER_WEB_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path, media_type="text/html")
+        raise HTTPException(status_code=404, detail="Flutter web build bulunamadi.")
+
+    # Root path: index.html
+    @app.get("/")
+    async def serve_flutter_root():
+        index_path = os.path.join(FLUTTER_WEB_DIR, "index.html")
+        if os.path.isfile(index_path):
+            return FileResponse(index_path, media_type="text/html")
+        return {"message": "SmartFarm XR API", "docs": "/docs", "note": "Flutter web build henuz olusturulmamis."}
+else:
+    print(f"ℹ️  Flutter web build bulunamadi: {FLUTTER_WEB_DIR}")
+    print(f"   Sadece API modu aktif. Frontend icin: cd smartfarm_xr && flutter build web")
+
+    @app.get("/")
+    async def api_root():
+        return {
+            "message": "SmartFarm XR API",
+            "docs": "/docs",
+            "note": "Flutter web build bulunamadi. 'cd smartfarm_xr && flutter build web' calistirin.",
+        }
