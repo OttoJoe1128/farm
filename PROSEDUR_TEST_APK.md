@@ -1,6 +1,8 @@
 # SmartFarm Field – Test ve APK Prosedürü
 
-Bu dokümanda: backend kurulumu, emülatörde test, APK üretme adımları var.
+**Yerel bilgisayarda her şeyi kurup denemek için:** `smartfarm_field/YEREL_KURULUM.md` (IDX yok, hepsi burada).
+
+Bu dokümanda: backend kurulumu, emülatörde test, APK üretme adımları var (IDX dahil).
 
 **IDX’te repo güncellerken** `git pull` “Your local changes would be overwritten” derse:  
 `git checkout -- .idx/install_android_studio.sh` (veya ilgili dosya) sonra `git pull origin main`.
