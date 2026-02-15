@@ -6,9 +6,8 @@ Bu repodan `smartfarm_field` klasörünü ayrı bir Git reposuna taşımak için
 
 ## 1. Yeni repo oluştur (GitHub)
 
-- GitHub’da yeni bir repo oluştur (örn. `smartfarm-field` veya `farm-field`).
-- **Boş** olsun (README, .gitignore ekleme).
-- Repo URL’ini not et: `https://github.com/KULLANICI/smartfarm-field.git`
+- Repo: **https://github.com/OttoJoe1128/smartfarm-field** (boş olsun).
+- Clone URL: `https://github.com/OttoJoe1128/smartfarm-field.git`
 
 ---
 
@@ -34,11 +33,9 @@ Bu komut `field-only` adlı bir dal oluşturur; içinde yalnızca `smartfarm_fie
 Yeni repoyu remote olarak ekleyip bu dalı orada `main` yap:
 
 ```bash
-git remote add field-repo https://github.com/KULLANICI/smartfarm-field.git
+git remote add field-repo https://github.com/OttoJoe1128/smartfarm-field.git
 git push field-repo field-only:main
 ```
-
-`KULLANICI` ve `smartfarm-field` kısmını kendi repo adresinle değiştir.
 
 ---
 
@@ -63,7 +60,7 @@ Bundan sonra bu repo (farm) içinde `smartfarm_field` klasörü olmaz; saha uygu
 ## 5. Yeni IDX’te saha repoyu kullan
 
 - Yeni bir IDX workspace aç.
-- Repo olarak **yeni oluşturduğun saha reposunu** seç (`smartfarm-field`).
+- Repo olarak **https://github.com/OttoJoe1128/smartfarm-field** seç.
 - Clone edince proje kökü doğrudan saha uygulaması olur; `flutter pub get`, `flutter build apk` bu kök dizinde çalıştırılır.
 - Backend bu IDX’te olmayacağı için `api_config` / ortam değişkeninde API URL’ini farm backend’ine (diğer IDX veya sunucu) yönlendir.
 
@@ -74,6 +71,6 @@ Bundan sonra bu repo (farm) içinde `smartfarm_field` klasörü olmaz; saha uygu
 | Nerede | Ne var? |
 |--------|--------|
 | **Farm repo** (bu repo) | Backend + SmartFarm XR; `smartfarm_field` yok. |
-| **Yeni repo** (smartfarm-field) | Sadece SmartFarm Field (saha uygulaması). |
+| **Yeni repo** [smartfarm-field](https://github.com/OttoJoe1128/smartfarm-field) | Sadece SmartFarm Field (saha uygulaması). |
 
 İşlevsellik aynı kalır: saha uygulaması API URL’i ile farm backend’ine bağlanır.
