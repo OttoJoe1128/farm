@@ -8,6 +8,13 @@
     pkgs.python311Packages.pip
     pkgs.flutter
     pkgs.jdk17
+    # Flutter Linux build
+    pkgs.cmake
+    pkgs.ninja
+    pkgs.pkg-config
+    pkgs.gtk3
+    pkgs.glib
+    pkgs.gcc
   ];
   idx = {
     extensions = [
