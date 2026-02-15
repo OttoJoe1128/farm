@@ -61,10 +61,10 @@ cd ~/farm/smartfarm_field
 flutter pub get
 ```
 
-### 2b. Emülatörü aç
+### 2b. Cihaz / platform
 
-- Android Studio: AVD Manager’dan bir cihaz başlat, veya  
-- IDX içinde emülatör zaten açıksa devam et.
+- **Android emülatör** varsa: AVD Manager’dan bir cihaz başlat veya IDX’te emülatör aç.
+- **Emülatör yoksa (örn. sadece IDX Linux):** Uygulama Linux masaüstünde çalışacak şekilde eklendi. Linux’ta çalıştırmak için aşağıdaki “Linux’ta çalıştırma” adımını kullan.
 
 Cihazları görmek için:
 
@@ -74,9 +74,18 @@ flutter devices
 
 ### 2c. Uygulamayı çalıştır
 
+**Android (emülatör veya fiziksel cihaz):**
+
 ```bash
 cd ~/farm/smartfarm_field
 flutter run
+```
+
+**Linux (IDX veya masaüstü – emülatör yoksa):**
+
+```bash
+cd ~/farm/smartfarm_field
+flutter run -d linux
 ```
 
 Birden fazla cihaz varsa:
@@ -85,7 +94,7 @@ Birden fazla cihaz varsa:
 flutter run -d <cihaz_id>
 ```
 
-Emülatör backend’e `10.0.2.2:8000` üzerinden erişir (varsayılan ayar buna uygun).
+Emülatör backend’e `10.0.2.2:8000` üzerinden erişir. Linux’ta backend `127.0.0.1:8000` ise varsayılan ayar yeterli; gerekirse `export SMARTFARM_API_URL=http://127.0.0.1:8000/api/v1` kullan.
 
 ---
 
