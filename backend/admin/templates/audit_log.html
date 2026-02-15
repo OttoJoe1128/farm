@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% set active_page = "audit" %}
+
+{% block title %}Islem Gecmisi - SmartFarm XR Admin{% endblock %}
+{% block page_title %}Islem Gecmisi{% endblock %}
+
+{% block content %}
+<!-- Filtre -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" action="/admin/audit-log" class="row g-3">
+            <div class="col-md-4">
+                <select name="action" class="form-select">
+                    <option value="">Tum Islemler</option>
+                    <option value="register" {% if action_filter == 'register' %}selected{% endif %}>Kayit</option>
+                    <option value="register_firebase" {% if action_filter == 'register_firebase' %}selected{% endif %}>Firebase Kayit</option>
+                    <option value="login" {% if action_filter == 'login' %}selected{% endif %}>Giris</option>
+                    <option value="login_firebase" {% if action_filter == 'login_firebase' %}selected{% endif %}>Firebase Giris</option>
+                    <option value="logout" {% if action_filter == 'logout' %}selected{% endif %}>Cikis</option>
+                    <option value="token_refresh" {% if action_filter == 'token_refresh' %}selected{% endif %}>Token Yenileme</option>
+                    <option value="user_update" {% if action_filter == 'user_update' %}selected{% endif %}>Kullanici Guncelleme</option>
+                    <option value="role_change" {% if action_filter == 'role_change' %}selected{% endif %}>Rol Degisikligi</option>
+                    <option value="user_deactivate" {% if action_filter == 'user_deactivate' %}selected{% endif %}>Hesap Deaktive</option>
+                    <option value="farm_create" {% if action_filter == 'farm_create' %}selected{% endif %}>Ciftlik Olusturma</option>
+                    <option value="farm_member_add" {% if action_filter == 'farm_member_add' %}selected{% endif %}>Uye Ekleme</option>
+                    <option value="farm_member_remove" {% if action_filter == 'farm_member_remove' %}selected{% endif %}>Uye Cikarma</option>
+                    <option value="admin_role_change" {% if action_filter == 'admin_role_change' %}selected{% endif %}>Admin Rol Degisikligi</option>
+                    <option value="admin_toggle_active" {% if action_filter == 'admin_toggle_active' %}selected{% endif %}>Admin Durum Degisikligi</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100"><i class="ti ti-filter"></i> Filtrele</button>
+            </div>
+            <div class="col-md-2">
+                <a href="/admin/audit-log" class="btn btn-outline-secondary w-100">Temizle</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Log Tablosu -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Islemler ({{ total }})</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+            <thead>
+                <tr>
+                    <th>Tarih</th>
+                    <th>Kullanici</th>
+                    <th>Islem</th>
+                    <th>Varlik Tipi</th>
+                    <th>Detay</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in log_data %}
+                <tr>
+                    <td>{{ item.log.created_at.strftime('%d.%m.%Y %H:%M:%S') if item.log.created_at else '-' }}</td>
+                    <td>{{ item.username }}</td>
+                    <td><span class="badge bg-azure">{{ item.log.action }}</span></td>
+                    <td>{{ item.log.entity_type or '-' }}</td>
+                    <td>
+                        {% if item.log.details %}
+                        <code class="small">{{ item.log.details | tojson }}</code>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>{{ item.log.ip_address or '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not log_data %}
+                <tr>
+                    <td colspan="6" class="text-center text-secondary py-4">Islem kaydı bulunamadi</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    {% if total_pages > 1 %}
+    <div class="card-footer d-flex align-items-center">
+        <p class="m-0 text-secondary">Sayfa {{ page }} / {{ total_pages }}</p>
+        <ul class="pagination m-0 ms-auto">
+            {% if page > 1 %}
+            <li class="page-item"><a class="page-link" href="/admin/audit-log?page={{ page - 1 }}&action={{ action_filter }}"><i class="ti ti-chevron-left"></i></a></li>
+            {% endif %}
+            {% if page < total_pages %}
+            <li class="page-item"><a class="page-link" href="/admin/audit-log?page={{ page + 1 }}&action={{ action_filter }}"><i class="ti ti-chevron-right"></i></a></li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

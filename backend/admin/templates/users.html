@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% set active_page = "users" %}
+
+{% block title %}Kullanici Yonetimi - SmartFarm XR Admin{% endblock %}
+{% block page_title %}Kullanici Yonetimi{% endblock %}
+
+{% block content %}
+<!-- Arama ve Filtre -->
+<div class="card mb-3">
+    <div class="card-body">
+        <form method="get" action="/admin/users" class="row g-3">
+            <div class="col-md-5">
+                <div class="input-group">
+                    <span class="input-group-text"><i class="ti ti-search"></i></span>
+                    <input type="text" name="search" class="form-control" placeholder="Isim, email veya kullanici adi ara..." value="{{ search }}">
+                </div>
+            </div>
+            <div class="col-md-3">
+                <select name="role" class="form-select">
+                    <option value="">Tum Roller</option>
+                    {% for r in roles %}
+                    <option value="{{ r }}" {% if r == role_filter %}selected{% endif %}>{{ r | capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-primary w-100">
+                    <i class="ti ti-filter"></i> Filtrele
+                </button>
+            </div>
+            <div class="col-md-2">
+                <a href="/admin/users" class="btn btn-outline-secondary w-100">Temizle</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Kullanici Tablosu -->
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Kullanicilar ({{ total }})</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+            <thead>
+                <tr>
+                    <th>Kullanici</th>
+                    <th>E-posta</th>
+                    <th>Rol</th>
+                    <th>Durum</th>
+                    <th>Kayit Tarihi</th>
+                    <th>Son Giris</th>
+                    <th>Islemler</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td>
+                        <div class="d-flex align-items-center">
+                            <span class="avatar avatar-sm me-2" style="background-image: url({{ user.avatar_url or '' }})">
+                                {% if not user.avatar_url %}{{ (user.full_name or user.username)[0] | upper }}{% endif %}
+                            </span>
+                            <div>
+                                <div>{{ user.full_name or user.username }}</div>
+                                <div class="text-secondary">@{{ user.username }}</div>
+                            </div>
+                        </div>
+                    </td>
+                    <td>{{ user.email }}</td>
+                    <td>
+                        <form method="post" action="/admin/users/{{ user.id }}/role" style="display:inline;">
+                            <select name="new_role" class="form-select form-select-sm" onchange="this.form.submit()" style="width:auto;">
+                                {% for r in roles %}
+                                <option value="{{ r }}" {% if user.role.value == r %}selected{% endif %}>{{ r | capitalize }}</option>
+                                {% endfor %}
+                            </select>
+                        </form>
+                    </td>
+                    <td>
+                        {% if user.is_active %}
+                        <span class="badge bg-success">Aktif</span>
+                        {% else %}
+                        <span class="badge bg-danger">Pasif</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ user.created_at.strftime('%d.%m.%Y') if user.created_at else '-' }}</td>
+                    <td>{{ user.last_login_at.strftime('%d.%m.%Y %H:%M') if user.last_login_at else 'Hic' }}</td>
+                    <td>
+                        <form method="post" action="/admin/users/{{ user.id }}/toggle-active" style="display:inline;">
+                            {% if user.is_active %}
+                            <button type="submit" class="btn btn-sm btn-outline-danger" title="Deaktive Et">
+                                <i class="ti ti-user-off"></i>
+                            </button>
+                            {% else %}
+                            <button type="submit" class="btn btn-sm btn-outline-success" title="Aktive Et">
+                                <i class="ti ti-user-check"></i>
+                            </button>
+                            {% endif %}
+                        </form>
+                        <a href="/admin/audit-log?action=&search={{ user.username }}" class="btn btn-sm btn-outline-info" title="Islem Gecmisi">
+                            <i class="ti ti-history"></i>
+                        </a>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% if not users %}
+                <tr>
+                    <td colspan="7" class="text-center text-secondary py-4">Kullanici bulunamadi</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+    <!-- Sayfalama -->
+    {% if total_pages > 1 %}
+    <div class="card-footer d-flex align-items-center">
+        <p class="m-0 text-secondary">Sayfa {{ page }} / {{ total_pages }}</p>
+        <ul class="pagination m-0 ms-auto">
+            {% if page > 1 %}
+            <li class="page-item"><a class="page-link" href="/admin/users?page={{ page - 1 }}&search={{ search }}&role={{ role_filter }}"><i class="ti ti-chevron-left"></i></a></li>
+            {% endif %}
+            {% if page < total_pages %}
+            <li class="page-item"><a class="page-link" href="/admin/users?page={{ page + 1 }}&search={{ search }}&role={{ role_filter }}"><i class="ti ti-chevron-right"></i></a></li>
+            {% endif %}
+        </ul>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

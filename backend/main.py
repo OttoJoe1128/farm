@@ -21,7 +21,7 @@ try:
 except ImportError:
     deepforest_main = None
 
-app = FastAPI()
+app = FastAPI(title="SmartFarm XR API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,6 +36,28 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Firebase Admin SDK Baslatma ---
+try:
+    from core.firebase import initialize_firebase
+    initialize_firebase()
+except Exception as firebase_err:
+    print(f"[UYARI] Firebase baslatma atlanıyor: {firebase_err}")
+
+# --- Auth ve Kullanici Yonetimi API Router ---
+try:
+    from api.v1.api import api_router
+    app.include_router(api_router, prefix="/api/v1")
+except Exception as router_err:
+    print(f"[UYARI] API router yuklenemedi: {router_err}")
+
+# --- Web Admin Paneli ---
+try:
+    from admin.router import router as admin_router
+    app.include_router(admin_router)
+    print("[BILGI] Admin paneli aktif: /admin/login")
+except Exception as admin_err:
+    print(f"[UYARI] Admin paneli yuklenemedi: {admin_err}")
 
 # --- Flutter web build dizini (tek port cozumu) ---
 FLUTTER_WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "smartfarm_xr", "build", "web")

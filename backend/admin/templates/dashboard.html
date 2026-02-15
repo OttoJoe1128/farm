@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% set active_page = "dashboard" %}
+
+{% block title %}Kontrol Paneli - SmartFarm XR Admin{% endblock %}
+{% block page_title %}Kontrol Paneli{% endblock %}
+
+{% block content %}
+<div class="row row-deck row-cards">
+    <!-- Istatistik Kartlari -->
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="d-flex align-items-center">
+                    <div class="subheader">Toplam Kullanici</div>
+                </div>
+                <div class="h1 mb-0">{{ total_users }}</div>
+                <div class="text-secondary">{{ active_users }} aktif</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="subheader">Toplam Ciftlik</div>
+                <div class="h1 mb-0">{{ total_farms }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="subheader">Admin Sayisi</div>
+                <div class="h1 mb-0">{{ role_counts.get('admin', 0) }}</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-sm-6 col-lg-3">
+        <div class="card stat-card">
+            <div class="card-body">
+                <div class="subheader">Yonetici Sayisi</div>
+                <div class="h1 mb-0">{{ role_counts.get('yonetici', 0) }}</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rol Dagilimi -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-chart-pie"></i> Rol Dagilimi</h3>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-vcenter">
+                        <thead>
+                            <tr><th>Rol</th><th>Sayi</th><th>Oran</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for role_name, count in role_counts.items() %}
+                            <tr>
+                                <td>
+                                    {% if role_name == 'admin' %}<span class="badge bg-red">Admin</span>
+                                    {% elif role_name == 'yonetici' %}<span class="badge bg-blue">Yonetici</span>
+                                    {% elif role_name == 'calisan' %}<span class="badge bg-green">Calisan</span>
+                                    {% elif role_name == 'tarimci' %}<span class="badge bg-yellow">Tarimci</span>
+                                    {% else %}<span class="badge bg-secondary">Izleyici</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ count }}</td>
+                                <td>
+                                    <div class="progress progress-sm">
+                                        <div class="progress-bar" style="width: {{ (count / total_users * 100) if total_users > 0 else 0 }}%"></div>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Son Islemler -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <h3 class="card-title"><i class="ti ti-history"></i> Son Islemler</h3>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-vcenter">
+                        <thead>
+                            <tr><th>Islem</th><th>Tarih</th><th>IP</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for log in recent_logs %}
+                            <tr>
+                                <td><span class="badge bg-azure">{{ log.action }}</span></td>
+                                <td>{{ log.created_at.strftime('%d.%m.%Y %H:%M') if log.created_at else '-' }}</td>
+                                <td>{{ log.ip_address or '-' }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if not recent_logs %}
+                            <tr><td colspan="3" class="text-center text-secondary">Henuz islem yok</td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

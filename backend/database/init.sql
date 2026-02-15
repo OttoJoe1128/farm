@@ -4,16 +4,138 @@
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+-- Rol tipi / Role type enum
+CREATE TYPE user_role AS ENUM ('admin', 'yonetici', 'calisan', 'tarimci', 'izleyici');
+
 -- Users table / Kullanıcılar tablosu
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    firebase_uid VARCHAR(128) UNIQUE,
     username VARCHAR(50) UNIQUE NOT NULL,
     email VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
     full_name VARCHAR(100),
+    phone VARCHAR(20),
+    avatar_url VARCHAR(500),
+    role user_role NOT NULL DEFAULT 'izleyici',
+    is_active BOOLEAN DEFAULT true,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Farms table / Ciftlikler tablosu
+CREATE TABLE farms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(150) NOT NULL,
+    description TEXT,
+    owner_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    address TEXT,
+    latitude DECIMAL(10, 8),
+    longitude DECIMAL(11, 8),
+    area_hectares DECIMAL(10, 2),
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Farm members table / Ciftlik uyeleri tablosu
+CREATE TABLE farm_members (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    farm_id UUID NOT NULL REFERENCES farms(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role user_role NOT NULL DEFAULT 'calisan',
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(farm_id, user_id)
+);
+
+-- Permissions table / Izinler tablosu
+CREATE TABLE permissions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    role user_role NOT NULL,
+    permission_key VARCHAR(50) NOT NULL,
+    is_allowed BOOLEAN DEFAULT true,
+    UNIQUE(role, permission_key)
+);
+
+-- Insert default permissions / Varsayilan izinleri ekle
+INSERT INTO permissions (role, permission_key, is_allowed) VALUES
+-- admin: tam yetki
+('admin', 'user_manage', true),
+('admin', 'farm_manage', true),
+('admin', 'asset_create', true),
+('admin', 'asset_edit', true),
+('admin', 'asset_delete', true),
+('admin', 'asset_view', true),
+('admin', 'design_manage', true),
+('admin', 'report_view', true),
+('admin', 'settings_manage', true),
+('admin', 'ai_analyze', true),
+-- yonetici: kullanici yonetimi ve ayarlar haric
+('yonetici', 'user_manage', false),
+('yonetici', 'farm_manage', true),
+('yonetici', 'asset_create', true),
+('yonetici', 'asset_edit', true),
+('yonetici', 'asset_delete', true),
+('yonetici', 'asset_view', true),
+('yonetici', 'design_manage', true),
+('yonetici', 'report_view', true),
+('yonetici', 'settings_manage', false),
+('yonetici', 'ai_analyze', true),
+-- calisan: olusturma ve duzenleme
+('calisan', 'user_manage', false),
+('calisan', 'farm_manage', false),
+('calisan', 'asset_create', true),
+('calisan', 'asset_edit', true),
+('calisan', 'asset_delete', false),
+('calisan', 'asset_view', true),
+('calisan', 'design_manage', false),
+('calisan', 'report_view', true),
+('calisan', 'settings_manage', false),
+('calisan', 'ai_analyze', false),
+-- tarimci: analiz ve goruntuleme
+('tarimci', 'user_manage', false),
+('tarimci', 'farm_manage', false),
+('tarimci', 'asset_create', true),
+('tarimci', 'asset_edit', true),
+('tarimci', 'asset_delete', false),
+('tarimci', 'asset_view', true),
+('tarimci', 'design_manage', false),
+('tarimci', 'report_view', true),
+('tarimci', 'settings_manage', false),
+('tarimci', 'ai_analyze', true),
+-- izleyici: salt okunur
+('izleyici', 'user_manage', false),
+('izleyici', 'farm_manage', false),
+('izleyici', 'asset_create', false),
+('izleyici', 'asset_edit', false),
+('izleyici', 'asset_delete', false),
+('izleyici', 'asset_view', true),
+('izleyici', 'design_manage', false),
+('izleyici', 'report_view', true),
+('izleyici', 'settings_manage', false),
+('izleyici', 'ai_analyze', false);
+
+-- Refresh tokens table / Yenileme token tablosu
+CREATE TABLE refresh_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL UNIQUE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    is_revoked BOOLEAN DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Audit log table / Islem gecmisi tablosu
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    action VARCHAR(50) NOT NULL,
+    entity_type VARCHAR(50),
+    entity_id UUID,
+    details JSONB,
+    ip_address VARCHAR(45),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Saved locations table / Kayıtlı lokasyonlar tablosu
@@ -133,6 +255,16 @@ CREATE INDEX idx_farm_designs_location_id ON farm_designs(location_id);
 CREATE INDEX idx_farm_objects_design_id ON farm_objects(design_id);
 CREATE INDEX idx_line_objects_design_id ON line_objects(design_id);
 CREATE INDEX idx_design_history_design_id ON design_history(design_id);
+CREATE INDEX idx_users_firebase_uid ON users(firebase_uid);
+CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_farms_owner_id ON farms(owner_id);
+CREATE INDEX idx_farm_members_farm_id ON farm_members(farm_id);
+CREATE INDEX idx_farm_members_user_id ON farm_members(user_id);
+CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
+CREATE INDEX idx_audit_log_user_id ON audit_log(user_id);
+CREATE INDEX idx_audit_log_entity ON audit_log(entity_type, entity_id);
+CREATE INDEX idx_audit_log_created_at ON audit_log(created_at);
 
 -- Update timestamp trigger function
 CREATE OR REPLACE FUNCTION update_updated_at_column()
@@ -149,3 +281,8 @@ CREATE TRIGGER update_saved_locations_updated_at BEFORE UPDATE ON saved_location
 CREATE TRIGGER update_farm_designs_updated_at BEFORE UPDATE ON farm_designs FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_farm_objects_updated_at BEFORE UPDATE ON farm_objects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_line_objects_updated_at BEFORE UPDATE ON line_objects FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_farms_updated_at BEFORE UPDATE ON farms FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Insert default admin user (sifre: admin123 - bcrypt hash)
+INSERT INTO users (username, email, password_hash, full_name, role, is_active)
+VALUES ('admin', 'admin@smartfarm.com', '$2b$12$LJ3m4ys3GZfnMKFbR5hDYeKFGhNqRkOQ1nH6TJsPL5FmzXB3kG3Wu', 'Sistem Yoneticisi', 'admin', true);

@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SmartFarm XR Admin{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/tabler-icons.min.css">
+    <style>
+        .navbar-brand-image { height: 2rem; }
+        .stat-card { transition: transform 0.2s; }
+        .stat-card:hover { transform: translateY(-2px); }
+    </style>
+</head>
+<body class="theme-dark">
+    <div class="page">
+        <!-- Sidebar -->
+        <aside class="navbar navbar-vertical navbar-expand-lg" data-bs-theme="dark">
+            <div class="container-fluid">
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#sidebar-menu">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <h1 class="navbar-brand navbar-brand-autodark">
+                    <a href="/admin/dashboard" style="text-decoration:none; color:inherit;">
+                        <i class="ti ti-plant-2" style="font-size:1.5rem; margin-right:0.5rem;"></i>
+                        SmartFarm XR
+                    </a>
+                </h1>
+                <div class="collapse navbar-collapse" id="sidebar-menu">
+                    <ul class="navbar-nav pt-lg-3">
+                        <li class="nav-item{% if active_page == 'dashboard' %} active{% endif %}">
+                            <a class="nav-link" href="/admin/dashboard">
+                                <span class="nav-link-icon"><i class="ti ti-dashboard"></i></span>
+                                <span class="nav-link-title">Kontrol Paneli</span>
+                            </a>
+                        </li>
+                        <li class="nav-item{% if active_page == 'users' %} active{% endif %}">
+                            <a class="nav-link" href="/admin/users">
+                                <span class="nav-link-icon"><i class="ti ti-users"></i></span>
+                                <span class="nav-link-title">Kullanicilar</span>
+                            </a>
+                        </li>
+                        <li class="nav-item{% if active_page == 'farms' %} active{% endif %}">
+                            <a class="nav-link" href="/admin/farms">
+                                <span class="nav-link-icon"><i class="ti ti-tractor"></i></span>
+                                <span class="nav-link-title">Ciftlikler</span>
+                            </a>
+                        </li>
+                        <li class="nav-item{% if active_page == 'audit' %} active{% endif %}">
+                            <a class="nav-link" href="/admin/audit-log">
+                                <span class="nav-link-icon"><i class="ti ti-history"></i></span>
+                                <span class="nav-link-title">Islem Gecmisi</span>
+                            </a>
+                        </li>
+                        <li class="nav-item mt-auto">
+                            <a class="nav-link text-warning" href="/admin/logout">
+                                <span class="nav-link-icon"><i class="ti ti-logout"></i></span>
+                                <span class="nav-link-title">Cikis Yap</span>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </aside>
+        <!-- Page Content -->
+        <div class="page-wrapper">
+            <div class="page-header d-print-none">
+                <div class="container-xl">
+                    <div class="page-pretitle">SmartFarm XR Yonetim</div>
+                    <h2 class="page-title">{% block page_title %}{% endblock %}</h2>
+                </div>
+            </div>
+            <div class="page-body">
+                <div class="container-xl">
+                    {% block content %}{% endblock %}
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/js/tabler.min.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

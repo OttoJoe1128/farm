@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartFarm XR - Admin Giris</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/core@1.0.0-beta20/dist/css/tabler.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.3.0/tabler-icons.min.css">
+</head>
+<body class="d-flex flex-column theme-dark" style="min-height:100vh;">
+    <div class="page page-center">
+        <div class="container container-tight py-4">
+            <div class="text-center mb-4">
+                <h1><i class="ti ti-plant-2" style="font-size:3rem;"></i></h1>
+                <h2>SmartFarm XR</h2>
+                <p class="text-secondary">Yonetim Paneli</p>
+            </div>
+            <div class="card card-md">
+                <div class="card-body">
+                    <h2 class="h2 text-center mb-4">Admin Girisi</h2>
+                    {% if error %}
+                    <div class="alert alert-danger" role="alert">
+                        <i class="ti ti-alert-circle"></i> {{ error }}
+                    </div>
+                    {% endif %}
+                    <form action="/admin/login" method="post" autocomplete="off">
+                        <div class="mb-3">
+                            <label class="form-label">E-posta Adresi</label>
+                            <input type="email" name="email" class="form-control" placeholder="admin@smartfarm.com" required autofocus>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Sifre</label>
+                            <input type="password" name="password" class="form-control" placeholder="Sifreniz" required>
+                        </div>
+                        <div class="form-footer">
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="ti ti-login"></i> Giris Yap
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="text-center text-secondary mt-3">
+                SmartFarm XR &copy; 2025-2026
+            </div>
+        </div>
+    </div>
+</body>
+</html>

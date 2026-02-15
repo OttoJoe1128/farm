@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% set active_page = "farms" %}
+
+{% block title %}Ciftlik Yonetimi - SmartFarm XR Admin{% endblock %}
+{% block page_title %}Ciftlik Yonetimi{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3 class="card-title">Ciftlikler ({{ farm_data | length }})</h3>
+    </div>
+    <div class="table-responsive">
+        <table class="table table-vcenter card-table">
+            <thead>
+                <tr>
+                    <th>Ciftlik Adi</th>
+                    <th>Sahip</th>
+                    <th>Konum</th>
+                    <th>Alan (ha)</th>
+                    <th>Uye Sayisi</th>
+                    <th>Durum</th>
+                    <th>Olusturma</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in farm_data %}
+                <tr>
+                    <td>
+                        <strong>{{ item.farm.name }}</strong>
+                        {% if item.farm.description %}
+                        <div class="text-secondary small">{{ item.farm.description[:80] }}{% if item.farm.description|length > 80 %}...{% endif %}</div>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if item.owner %}
+                        <span class="avatar avatar-xs me-1" style="font-size:0.6rem;">{{ (item.owner.full_name or item.owner.username)[0] | upper }}</span>
+                        {{ item.owner.full_name or item.owner.username }}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>
+                        {% if item.farm.latitude and item.farm.longitude %}
+                        <span class="text-secondary small">{{ "%.4f"|format(item.farm.latitude) }}, {{ "%.4f"|format(item.farm.longitude) }}</span>
+                        {% elif item.farm.address %}
+                        <span class="text-secondary small">{{ item.farm.address[:40] }}</span>
+                        {% else %}-{% endif %}
+                    </td>
+                    <td>{{ item.farm.area_hectares or '-' }}</td>
+                    <td><span class="badge bg-blue">{{ item.member_count }}</span></td>
+                    <td>
+                        {% if item.farm.is_active %}
+                        <span class="badge bg-success">Aktif</span>
+                        {% else %}
+                        <span class="badge bg-danger">Pasif</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ item.farm.created_at.strftime('%d.%m.%Y') if item.farm.created_at else '-' }}</td>
+                </tr>
+                {% endfor %}
+                {% if not farm_data %}
+                <tr>
+                    <td colspan="7" class="text-center text-secondary py-4">Henuz ciftlik yok</td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

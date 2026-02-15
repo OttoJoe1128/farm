@@ -6,9 +6,13 @@ import 'widgets/harita_paneli.dart';
 import 'widgets/varlik_kutuphanesi.dart';
 import 'widgets/components/panel_components.dart';
 import '../data/gis_service.dart';
+import '../../auth/presentation/providers/auth_provider.dart';
+import '../../auth/presentation/pages/profil_sayfasi.dart';
 
 class DashboardPage extends StatefulWidget {
-  const DashboardPage({super.key});
+  final AuthProvider? authProvider;
+
+  const DashboardPage({super.key, this.authProvider});
 
   @override
   State<DashboardPage> createState() => _DashboardPageState();
@@ -365,6 +369,50 @@ class _DashboardPageState extends State<DashboardPage> {
               ],
             ),
           ),
+          // Kullanici profil butonu (sag ust)
+          if (widget.authProvider != null)
+            Positioned(
+              top: 40,
+              right: 20,
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (BuildContext ctx) =>
+                          _buildProfilSayfasi(),
+                    ),
+                  );
+                },
+                child: GlassContainer(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircleAvatar(
+                          radius: 14,
+                          backgroundColor: Colors.deepPurple.withValues(alpha: 0.5),
+                          child: Text(
+                            (widget.authProvider!.state.user?.fullName ??
+                                    widget.authProvider!.state.user?.username ??
+                                    '?')[0]
+                                .toUpperCase(),
+                            style: const TextStyle(fontSize: 12, color: Colors.white),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          widget.authProvider!.state.user?.username ?? '',
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
           if (editorModu && _uyduSaglayici != "-")
             Positioned(
               top: 92,
@@ -397,6 +445,16 @@ class _DashboardPageState extends State<DashboardPage> {
     );
   }
   
+  Widget _buildProfilSayfasi() {
+    return ProfilSayfasi(
+      authProvider: widget.authProvider!,
+      onLogout: () {
+        // Ana sayfaya geri don (auth state degisikligi ile login sayfasina yonlendirilecek)
+        Navigator.of(context).popUntil((Route<dynamic> route) => route.isFirst);
+      },
+    );
+  }
+
   Widget _aksiyonButonu(IconData icon, String label, Color color, VoidCallback onTap, {VoidCallback? onLongPress}) {
     return GestureDetector(onTap: onTap, onLongPress: onLongPress, child: GlassContainer(child: Container(padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10), decoration: BoxDecoration(color: color.withOpacity(0.5), borderRadius: BorderRadius.circular(30)), child: Row(children: [Icon(icon, color: Colors.white, size: 20), const SizedBox(width: 8), Text(label, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))]))));
   }
