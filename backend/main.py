@@ -870,65 +870,32 @@ def analyze_satellite(request: AnalysisRequest):
 # --- TEK PORT COZUMU: Flutter web dosyalarini 8000 portundan sun ---
 # Bu sayede IDX ortaminda CORS ve yetki sorunlari ortadan kalkar.
 # Kullanim: IDX'te "flutter build web" calistir, sonra sadece 8000 portunu ac.
-if os.path.isdir(FLUTTER_WEB_DIR):
+FLUTTER_INDEX_HTML = os.path.join(FLUTTER_WEB_DIR, "index.html")
+_flutter_build_hazir = os.path.isfile(FLUTTER_INDEX_HTML)
+
+if _flutter_build_hazir:
     print(f"✅ Flutter web build bulundu: {FLUTTER_WEB_DIR}")
     print(f"   Frontend ve Backend tek portta sunuluyor (8000).")
 
-    # Flutter web icindeki statik dosyalar (js, css, assets vb.)
-    app.mount("/assets", StaticFiles(directory=os.path.join(FLUTTER_WEB_DIR, "assets")), name="flutter_assets")
+    # Alt klasorler varsa StaticFiles ile mount et (yoksa catch-all halleder)
+    _flutter_assets_dir = os.path.join(FLUTTER_WEB_DIR, "assets")
+    if os.path.isdir(_flutter_assets_dir):
+        app.mount("/assets", StaticFiles(directory=_flutter_assets_dir), name="flutter_assets")
 
-    # Flutter web'in ihtiyac duydugu root dosyalar (favicon, manifest, flutter.js vb.)
-    @app.get("/flutter.js")
-    async def flutter_js():
-        return FileResponse(os.path.join(FLUTTER_WEB_DIR, "flutter.js"), media_type="application/javascript")
+    _flutter_canvaskit_dir = os.path.join(FLUTTER_WEB_DIR, "canvaskit")
+    if os.path.isdir(_flutter_canvaskit_dir):
+        app.mount("/canvaskit", StaticFiles(directory=_flutter_canvaskit_dir), name="flutter_canvaskit")
 
-    @app.get("/flutter_bootstrap.js")
-    async def flutter_bootstrap_js():
-        return FileResponse(os.path.join(FLUTTER_WEB_DIR, "flutter_bootstrap.js"), media_type="application/javascript")
+    _flutter_icons_dir = os.path.join(FLUTTER_WEB_DIR, "icons")
+    if os.path.isdir(_flutter_icons_dir):
+        app.mount("/icons", StaticFiles(directory=_flutter_icons_dir), name="flutter_icons")
 
-    @app.get("/flutter_service_worker.js")
-    async def flutter_service_worker_js():
-        path = os.path.join(FLUTTER_WEB_DIR, "flutter_service_worker.js")
-        if os.path.exists(path):
-            return FileResponse(path, media_type="application/javascript")
-        raise HTTPException(status_code=404)
+    # Root path: index.html
+    @app.get("/")
+    async def serve_flutter_root():
+        return FileResponse(FLUTTER_INDEX_HTML, media_type="text/html")
 
-    @app.get("/main.dart.js")
-    async def main_dart_js():
-        path = os.path.join(FLUTTER_WEB_DIR, "main.dart.js")
-        if os.path.exists(path):
-            return FileResponse(path, media_type="application/javascript")
-        raise HTTPException(status_code=404)
-
-    @app.get("/manifest.json")
-    async def manifest_json():
-        path = os.path.join(FLUTTER_WEB_DIR, "manifest.json")
-        if os.path.exists(path):
-            return FileResponse(path, media_type="application/json")
-        raise HTTPException(status_code=404)
-
-    @app.get("/favicon.png")
-    async def favicon_png():
-        path = os.path.join(FLUTTER_WEB_DIR, "favicon.png")
-        if os.path.exists(path):
-            return FileResponse(path, media_type="image/png")
-        raise HTTPException(status_code=404)
-
-    @app.get("/icons/{icon_path:path}")
-    async def flutter_icons(icon_path: str):
-        path = os.path.join(FLUTTER_WEB_DIR, "icons", icon_path)
-        if os.path.exists(path):
-            return FileResponse(path)
-        raise HTTPException(status_code=404)
-
-    @app.get("/canvaskit/{file_path:path}")
-    async def canvaskit_files(file_path: str):
-        path = os.path.join(FLUTTER_WEB_DIR, "canvaskit", file_path)
-        if os.path.exists(path):
-            return FileResponse(path)
-        raise HTTPException(status_code=404)
-
-    # SPA catch-all: API olmayan tum GET isteklerinde index.html don
+    # SPA catch-all: API olmayan tum GET isteklerinde dosya veya index.html don
     @app.get("/{full_path:path}")
     async def serve_flutter_spa(request: Request, full_path: str):
         # API istekleri buraya dusmemeli (zaten yukarida tanimli)
@@ -939,21 +906,14 @@ if os.path.isdir(FLUTTER_WEB_DIR):
         if os.path.isfile(file_path):
             return FileResponse(file_path)
         # Yoksa SPA icin index.html don
-        index_path = os.path.join(FLUTTER_WEB_DIR, "index.html")
-        if os.path.isfile(index_path):
-            return FileResponse(index_path, media_type="text/html")
-        raise HTTPException(status_code=404, detail="Flutter web build bulunamadi.")
-
-    # Root path: index.html
-    @app.get("/")
-    async def serve_flutter_root():
-        index_path = os.path.join(FLUTTER_WEB_DIR, "index.html")
-        if os.path.isfile(index_path):
-            return FileResponse(index_path, media_type="text/html")
-        return {"message": "SmartFarm XR API", "docs": "/docs", "note": "Flutter web build henuz olusturulmamis."}
+        return FileResponse(FLUTTER_INDEX_HTML, media_type="text/html")
 else:
-    print(f"ℹ️  Flutter web build bulunamadi: {FLUTTER_WEB_DIR}")
-    print(f"   Sadece API modu aktif. Frontend icin: cd smartfarm_xr && flutter build web")
+    if os.path.isdir(FLUTTER_WEB_DIR):
+        print(f"⚠️  Flutter web dizini var ama index.html bulunamadi: {FLUTTER_WEB_DIR}")
+        print(f"   'cd smartfarm_xr && flutter build web' komutunu calistirdiginizdan emin olun.")
+    else:
+        print(f"ℹ️  Flutter web build bulunamadi: {FLUTTER_WEB_DIR}")
+        print(f"   Sadece API modu aktif. Frontend icin: cd smartfarm_xr && flutter build web")
 
     @app.get("/")
     async def api_root():
