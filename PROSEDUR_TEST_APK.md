@@ -54,6 +54,8 @@ Backend açıldığında: `http://0.0.0.0:8000` ve `http://127.0.0.1:8000/docs` 
 
 Backend’in 8000’de çalıştığını varsayıyoruz.
 
+**Öneri:** Uygulama Android için tasarlandığı için **Android emülatör** kullanmak en sorunsuz yoldur. IDX `dev.nix` içinde Android SDK tanımlı; ortamı rebuild ettikten sonra emülatör kullanılabilir.
+
 ### 2a. Flutter bağımlılıkları
 
 ```bash
@@ -63,8 +65,8 @@ flutter pub get
 
 ### 2b. Cihaz / platform
 
-- **Android emülatör** varsa: AVD Manager’dan bir cihaz başlat veya IDX’te emülatör aç.
-- **Emülatör yoksa (örn. sadece IDX Linux):** Uygulama Linux masaüstünde çalışacak şekilde eklendi. Linux’ta çalıştırmak için aşağıdaki “Linux’ta çalıştırma” adımını kullan.
+- **Android emülatör (önerilen):** IDX ortamında Android SDK vardır. `flutter devices` ile emülatörü görüyorsan doğrudan `flutter run` yeterli. Emülatör yoksa bir AVD oluşturup başlatın (aşağıda kısa not var).
+- **Linux masaüstü:** GTK/Nix ortamı gerektirir; sorun yaşanırsa Android emülatör tercih edin.
 
 Cihazları görmek için:
 
@@ -74,18 +76,21 @@ flutter devices
 
 ### 2c. Uygulamayı çalıştır
 
-**Android (emülatör veya fiziksel cihaz):**
+**Android (emülatör veya fiziksel cihaz) – önerilen:**
 
 ```bash
 cd ~/farm/smartfarm_field
 flutter run
 ```
 
-**Linux (IDX veya masaüstü – emülatör yoksa):**
+Birden fazla cihaz varsa: `flutter run -d <cihaz_id>`
+
+**Linux (sadece emülatör yoksa, opsiyonel):**
 
 ```bash
 cd ~/farm/smartfarm_field
-flutter run -d linux
+./run_linux.sh
+# veya: flutter run -d linux
 ```
 
 Birden fazla cihaz varsa:
@@ -95,6 +100,10 @@ flutter run -d <cihaz_id>
 ```
 
 Emülatör backend’e `10.0.2.2:8000` üzerinden erişir. Linux’ta backend `127.0.0.1:8000` ise varsayılan ayar yeterli; gerekirse `export SMARTFARM_API_URL=http://127.0.0.1:8000/api/v1` kullan.
+
+### 2d. Android emülatör (AVD) yoksa
+
+IDX/Nix ortamında Android SDK kuruluysa, komut satırından örnek bir AVD oluşturup çalıştırabilirsin (SDK’daki `avdmanager` / `emulator` yolu ortama göre değişir). Alternatif olarak bilgisayarında Android Studio kuruluysa AVD Manager’dan emülatör oluşturup başlatıp `flutter run` ile bağlanabilirsin.
 
 ---
 

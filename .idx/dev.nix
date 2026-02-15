@@ -8,18 +8,8 @@
     pkgs.python311Packages.pip
     pkgs.flutter
     pkgs.jdk17
-    # Flutter Linux build
-    pkgs.cmake
-    pkgs.ninja
-    pkgs.pkg-config
-    pkgs.gcc
-    pkgs.clang
-    pkgs.gtk3
-    pkgs.glib
-    pkgs.pango
-    pkgs.cairo
-    pkgs.gdk-pixbuf
-    pkgs.atk
+    # Android SDK + emulator (SmartFarm Field test icin)
+    pkgs.androidenv.androidPkgs_9_0.androidsdk
   ];
   idx = {
     extensions = [
