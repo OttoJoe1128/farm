@@ -32,6 +32,9 @@ HTTP errors can return:
 
 - `GET /api/v1/contracts`
   - Returns contract version, endpoint list, expected response schema, and common error codes.
+- OpenAPI:
+  - Swagger UI: `/docs`
+  - OpenAPI JSON: `/openapi.json`
 
 ## Field Ingest
 
@@ -61,6 +64,20 @@ HTTP errors can return:
 
 - `PATCH /api/v1/gis/faults/{log_id}/resolve`
   - Resolves a fault log and updates related asset projection and log status.
+  - Response includes:
+    - `fault`
+    - `asset_projection` (`asset_id`, `open_fault_count`, `last_fault_at`)
+    - `contract.log_semantics = asset_projection_plus_event_log.v1`
+
+## Conflict Policy
+
+- Supported policies:
+  - `latest_timestamp_wins`
+  - `incoming_wins`
+  - `existing_wins`
+- Used by:
+  - `POST /api/v1/gis/sync` (`conflict_policy`)
+  - `POST /api/v1/gis/update-asset-by-id` (`conflict_policy` or legacy `merge_policy`)
 
 ## Work Orders
 

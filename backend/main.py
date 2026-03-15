@@ -24,12 +24,13 @@ from services.canonical_service import (
     ensure_asset_identity,
     find_asset_index_by_id,
     iso_now_utc,
-    merge_by_latest_timestamp,
 )
 from services.work_order_service import append_work_order, update_work_order
 from services.iot_service import normalize_telemetry, detect_alerts
 from services.analytics_service import build_kpi
 from services.erp_service import run_connector_sync
+from services.state_service import bump_state_version
+from services.conflict_policy_service import resolve_asset_conflict
 try:
     from deepforest import main as deepforest_main
 except ImportError:
@@ -140,12 +141,14 @@ class SyncRequest(BaseModel):
     base_version: Optional[int] = None
     ops: List[SyncOperation] = []
     sync_requested_at: Optional[str] = None
+    conflict_policy: Optional[str] = "latest_timestamp_wins"
 
 
 class AssetMutationRequest(BaseModel):
     asset_id: Optional[str] = None
     asset: Optional[Dict[str, Any]] = None
     merge_policy: Optional[str] = "latest_timestamp_wins"
+    conflict_policy: Optional[str] = None
 
 class BatchAssetCreateRequest(BaseModel):
     assets: List[Dict[str, Any]] = []
@@ -1334,8 +1337,7 @@ def save_user_state(user_id: str, user_state: Dict[str, Any]) -> None:
     save_db(db_data)
 
 def _touch_user_state(user_state: Dict[str, Any]) -> None:
-    user_state["version"] = int(user_state.get("version", 0)) + 1
-    user_state["updated_at"] = datetime.datetime.utcnow().isoformat()
+    bump_state_version(user_state)
 
 
 def _find_asset_index(map_data: List[Dict[str, Any]], payload: Dict[str, Any]) -> int:
@@ -1466,6 +1468,7 @@ def contracts(current_user: Dict[str, Any] = Depends(get_current_user)):
         {
             "status": "ok",
             "contract_version": API_CONTRACT_VERSION,
+            "openapi": {"docs_url": "/docs", "openapi_json_url": "/openapi.json"},
             "error_codes": [
                 "asset_not_found",
                 "fault_not_found",
@@ -1474,6 +1477,12 @@ def contracts(current_user: Dict[str, Any] = Depends(get_current_user)):
                 "validation_error",
                 "unauthorized",
                 "forbidden",
+                "unexpected_error",
+            ],
+            "conflict_policies": [
+                "latest_timestamp_wins",
+                "incoming_wins",
+                "existing_wins",
             ],
             "phase2_endpoints": [
                 {"method": "POST", "path": "/api/v1/field/ingest"},
@@ -1494,18 +1503,25 @@ def contracts(current_user: Dict[str, Any] = Depends(get_current_user)):
 @app.get("/api/v1/gis/map")
 def get_map(current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    return canonicalize_map_items(user_state["map"])
+    return _with_meta(
+        {"status": "ok", "map": canonicalize_map_items(user_state["map"])},
+        current_user,
+    )
 
 @app.get("/api/v1/gis/snapshot")
 def get_snapshot(current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
     map_data = canonicalize_map_items(user_state["map"])
     user_state["map"] = map_data
-    return {
-        "map": map_data,
-        "version": user_state.get("version", 0),
-        "updated_at": user_state.get("updated_at"),
-    }
+    return _with_meta(
+        {
+            "status": "ok",
+            "map": map_data,
+            "version": user_state.get("version", 0),
+            "updated_at": user_state.get("updated_at"),
+        },
+        current_user,
+    )
 
 @app.delete("/api/v1/gis/reset-map")
 def reset_map(current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -1513,7 +1529,7 @@ def reset_map(current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state["map"] = []
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "cleared"}
+    return _with_meta({"status": "cleared"}, current_user)
 
 @app.post("/api/v1/gis/upload-map")
 async def upload_map(
@@ -1529,9 +1545,18 @@ async def upload_map(
             import geopandas as gpd
             gdf = gpd.read_file(temp_path)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Dosya okunamadi: {e}")
+            _api_error(
+                status_code=400,
+                error_code="validation_error",
+                message="Dosya okunamadi.",
+                details={"error": str(e)},
+            )
         if gdf is None or gdf.empty:
-            raise HTTPException(status_code=400, detail="Dosyada gecerli geometri bulunamadi.")
+            _api_error(
+                status_code=400,
+                error_code="validation_error",
+                message="Dosyada gecerli geometri bulunamadi.",
+            )
         if gdf.crs is not None and str(gdf.crs) != "EPSG:4326":
             gdf = gdf.to_crs("EPSG:4326")
         data: List[Dict[str, Any]] = []
@@ -1555,14 +1580,18 @@ async def upload_map(
                 "properties": {"iot_connected": False, **props},
             })
         if len(data) == 0:
-            raise HTTPException(status_code=400, detail="Dosyada islenebilir geometri bulunamadi.")
+            _api_error(
+                status_code=400,
+                error_code="validation_error",
+                message="Dosyada islenebilir geometri bulunamadi.",
+            )
         user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
         current_map: List[Dict[str, Any]] = list(user_state.get("map", []))
         current_map.extend(canonicalize_map_items(data))
         user_state["map"] = current_map
         _touch_user_state(user_state)
         save_user_state(str(current_user["id"]), user_state)
-        return {"status": "success", "data": data}
+        return _with_meta({"status": "success", "data": data}, current_user)
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
@@ -1576,7 +1605,7 @@ def add_asset(asset: Asset, current_user: Dict[str, Any] = Depends(get_current_u
     user_state["map"] = map_data
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "success", "asset": new_asset}
+    return _with_meta({"status": "success", "asset": new_asset}, current_user)
 
 @app.post("/api/v1/gis/batch-add-assets")
 def batch_add_assets(
@@ -1596,12 +1625,15 @@ def batch_add_assets(
     if len(created_assets) > 0:
         _touch_user_state(user_state)
         save_user_state(str(current_user["id"]), user_state)
-    return {
-        "status": "ok",
-        "created_count": len(created_assets),
-        "total_count": len(map_data),
-        "assets": created_assets,
-    }
+    return _with_meta(
+        {
+            "status": "ok",
+            "created_count": len(created_assets),
+            "total_count": len(map_data),
+            "assets": created_assets,
+        },
+        current_user,
+    )
 
 @app.post("/api/v1/gis/upload-photo")
 async def upload_photo(
@@ -1631,7 +1663,10 @@ async def upload_photo(
     user_state["media_files"] = media_files[-2000:]
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "ok", "url": photo_url, "asset_id": str(asset_id)}
+    return _with_meta(
+        {"status": "ok", "url": photo_url, "asset_id": str(asset_id)},
+        current_user,
+    )
 
 @app.post("/api/v1/gis/add-fault")
 def add_fault_record(
@@ -1741,7 +1776,19 @@ def resolve_fault_log(
         )
     row: Dict[str, Any] = dict(fault_logs[target_index])
     if str(row.get("status", "open")) == "resolved":
-        return _with_meta({"status": "ok", "fault": row}, current_user)
+        return _with_meta(
+            {
+                "status": "ok",
+                "fault": row,
+                "asset_projection": {
+                    "asset_id": str(row.get("asset_id", "")),
+                    "open_fault_count": None,
+                    "last_fault_at": str(row.get("created_at", "")),
+                },
+                "contract": {"log_semantics": "asset_projection_plus_event_log.v1"},
+            },
+            current_user,
+        )
     resolved_at = str(request.resolved_at or iso_now_utc())
     row["status"] = "resolved"
     row["resolved_at"] = resolved_at
@@ -1758,6 +1805,7 @@ def resolve_fault_log(
     fault_logs[target_index] = row
     asset_id: str = str(row.get("asset_id", ""))
     asset_index = find_asset_index_by_id(map_data, asset_id)
+    open_fault_count: Optional[int] = None
     if 0 <= asset_index < len(map_data):
         target_asset: Dict[str, Any] = ensure_asset_identity(map_data[asset_index])
         props: Dict[str, Any] = dict(target_asset.get("properties", {}))
@@ -1781,7 +1829,19 @@ def resolve_fault_log(
     user_state["fault_logs"] = fault_logs[-5000:]
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return _with_meta({"status": "ok", "fault": row}, current_user)
+    return _with_meta(
+        {
+            "status": "ok",
+            "fault": row,
+            "asset_projection": {
+                "asset_id": asset_id,
+                "open_fault_count": open_fault_count,
+                "last_fault_at": str(row.get("created_at", "")),
+            },
+            "contract": {"log_semantics": "asset_projection_plus_event_log.v1"},
+        },
+        current_user,
+    )
 
 @app.get("/api/v1/gis/parcels")
 def list_parcels(current_user: Dict[str, Any] = Depends(get_current_user)):
@@ -1803,33 +1863,56 @@ def list_parcels(current_user: Dict[str, Any] = Depends(get_current_user)):
         parcel_name: str = str(asset_item.get("name") or "Adsiz Parsel")
         boundary: List[List[float]] = _extract_parcel_boundary(asset_item)
         parcels.append({"id": parcel_id, "name": parcel_name, "boundary": boundary})
-    return parcels
+    return _with_meta({"status": "ok", "items": parcels, "count": len(parcels)}, current_user)
 
 @app.put("/api/v1/gis/update-asset/{index}")
 def update_asset(index: int, asset: Asset, current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     if index < 0 or index >= len(map_data):
-        raise HTTPException(status_code=404, detail="Asset not found")
+        _api_error(
+            status_code=404,
+            error_code="asset_not_found",
+            message="Guncellenecek varlik bulunamadi.",
+            details={"index": index},
+        )
     existing_asset = ensure_asset_identity(map_data[index])
     incoming_asset = ensure_asset_identity(asset.dict())
-    map_data[index] = merge_by_latest_timestamp(existing_asset, incoming_asset)
+    conflict_result = resolve_asset_conflict(
+        existing_asset,
+        incoming_asset,
+        "latest_timestamp_wins",
+    )
+    map_data[index] = conflict_result["resolved_asset"]
     user_state["map"] = map_data
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "updated"}
+    return _with_meta(
+        {
+            "status": "updated",
+            "asset": map_data[index],
+            "policy_applied": conflict_result["policy_applied"],
+            "decision": conflict_result["decision"],
+        },
+        current_user,
+    )
 
 @app.delete("/api/v1/gis/delete-asset/{index}")
 def delete_asset(index: int, current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     if index < 0 or index >= len(map_data):
-        raise HTTPException(status_code=404, detail="Asset not found")
+        _api_error(
+            status_code=404,
+            error_code="asset_not_found",
+            message="Silinecek varlik bulunamadi.",
+            details={"index": index},
+        )
     map_data.pop(index)
     user_state["map"] = map_data
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "deleted"}
+    return _with_meta({"status": "deleted"}, current_user)
 
 
 @app.post("/api/v1/gis/update-asset-by-id")
@@ -1841,20 +1924,38 @@ def update_asset_by_id(
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     asset_id: str = str(request.asset_id or "").strip()
     if asset_id == "" or request.asset is None:
-        raise HTTPException(status_code=400, detail="asset_id ve asset zorunludur.")
+        _api_error(
+            status_code=400,
+            error_code="validation_error",
+            message="asset_id ve asset zorunludur.",
+        )
     target_index: int = find_asset_index_by_id(map_data, asset_id)
     if target_index < 0:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        _api_error(
+            status_code=404,
+            error_code="asset_not_found",
+            message="Guncellenecek varlik bulunamadi.",
+            details={"asset_id": asset_id},
+        )
     existing_asset = ensure_asset_identity(map_data[target_index])
     incoming_asset = ensure_asset_identity({**request.asset, "asset_id": asset_id})
-    if str(request.merge_policy or "latest_timestamp_wins") == "latest_timestamp_wins":
-        map_data[target_index] = merge_by_latest_timestamp(existing_asset, incoming_asset)
-    else:
-        map_data[target_index] = incoming_asset
+    policy = str(
+        request.conflict_policy or request.merge_policy or "latest_timestamp_wins"
+    )
+    conflict_result = resolve_asset_conflict(existing_asset, incoming_asset, policy)
+    map_data[target_index] = conflict_result["resolved_asset"]
     user_state["map"] = map_data
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "updated", "asset": map_data[target_index]}
+    return _with_meta(
+        {
+            "status": "updated",
+            "asset": map_data[target_index],
+            "policy_applied": conflict_result["policy_applied"],
+            "decision": conflict_result["decision"],
+        },
+        current_user,
+    )
 
 
 @app.post("/api/v1/gis/delete-asset-by-id")
@@ -1866,15 +1967,24 @@ def delete_asset_by_id(
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     asset_id: str = str(request.asset_id or "").strip()
     if asset_id == "":
-        raise HTTPException(status_code=400, detail="asset_id zorunludur.")
+        _api_error(
+            status_code=400,
+            error_code="validation_error",
+            message="asset_id zorunludur.",
+        )
     target_index: int = find_asset_index_by_id(map_data, asset_id)
     if target_index < 0:
-        raise HTTPException(status_code=404, detail="Asset not found")
+        _api_error(
+            status_code=404,
+            error_code="asset_not_found",
+            message="Silinecek varlik bulunamadi.",
+            details={"asset_id": asset_id},
+        )
     removed_asset = map_data.pop(target_index)
     user_state["map"] = map_data
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
-    return {"status": "deleted", "asset": removed_asset}
+    return _with_meta({"status": "deleted", "asset": removed_asset}, current_user)
 
 @app.post("/api/v1/gis/sync")
 def sync_gis(
@@ -1884,18 +1994,23 @@ def sync_gis(
     user_id: str = str(current_user["id"])
     user_state: Dict[str, Any] = get_user_state(user_id)
     server_version: int = int(user_state.get("version", 0))
+    conflict_policy = str(request.conflict_policy or "latest_timestamp_wins")
     if (
         request.base_version is not None
         and request.base_version != server_version
         and len(request.ops) > 0
     ):
-        return {
-            "status": "conflict",
-            "reason": "version_mismatch",
-            "map": user_state.get("map", []),
-            "version": server_version,
-            "updated_at": user_state.get("updated_at"),
-        }
+        return _with_meta(
+            {
+                "status": "conflict",
+                "reason": "version_mismatch",
+                "map": user_state.get("map", []),
+                "version": server_version,
+                "updated_at": user_state.get("updated_at"),
+                "policy_applied": conflict_policy,
+            },
+            current_user,
+        )
     map_data: List[Dict[str, Any]] = canonicalize_map_items(list(user_state.get("map", [])))
     processed_ops: List[str] = list(user_state.get("processed_op_ids", []))
     processed_set = set(processed_ops)
@@ -1920,7 +2035,12 @@ def sync_gis(
             if isinstance(asset_obj, dict) and 0 <= target_index < len(map_data):
                 existing_asset = ensure_asset_identity(map_data[target_index])
                 incoming_asset = ensure_asset_identity(asset_obj)
-                resolved_asset = merge_by_latest_timestamp(existing_asset, incoming_asset)
+                resolution = resolve_asset_conflict(
+                    existing_asset=existing_asset,
+                    incoming_asset=incoming_asset,
+                    policy=conflict_policy,
+                )
+                resolved_asset = resolution["resolved_asset"]
                 map_data[target_index] = resolved_asset
                 applied_count += 1
             else:
@@ -1964,16 +2084,20 @@ def sync_gis(
         _touch_user_state(user_state)
     user_state["processed_op_ids"] = list(processed_set)[-500:]
     save_user_state(user_id, user_state)
-    return {
-        "status": "ok",
-        "applied": applied_count,
-        "skipped": skipped_count,
-        "map": canonicalize_map_items(user_state.get("map", [])),
-        "version": user_state.get("version", 0),
-        "updated_at": user_state.get("updated_at"),
-        "conflicts": conflicts,
-        "sync_requested_at": request.sync_requested_at or iso_now_utc(),
-    }
+    return _with_meta(
+        {
+            "status": "ok",
+            "applied": applied_count,
+            "skipped": skipped_count,
+            "map": canonicalize_map_items(user_state.get("map", [])),
+            "version": user_state.get("version", 0),
+            "updated_at": user_state.get("updated_at"),
+            "conflicts": conflicts,
+            "sync_requested_at": request.sync_requested_at or iso_now_utc(),
+            "policy_applied": conflict_policy,
+        },
+        current_user,
+    )
 
 
 @app.post("/api/v1/field/ingest")
@@ -2271,31 +2395,45 @@ def fetch_satellite_image(
 ):
     try:
         if len(request.parcel_geometries) == 0:
-            raise HTTPException(status_code=400, detail="Parsel geometrisi bos olamaz.")
+            _api_error(
+                status_code=400,
+                error_code="validation_error",
+                message="Parsel geometrisi bos olamaz.",
+            )
         image_rgba_np, minx, miny, maxx, maxy, _, _, used_provider, used_provider_freshness_ts = fetch_masked_satellite_image(parcel_geometries=request.parcel_geometries)
         south_latlon: List[float] = meters_to_latlon(x_meters=minx, y_meters=miny)
         north_latlon: List[float] = meters_to_latlon(x_meters=maxx, y_meters=maxy)
         png_buffer: BytesIO = BytesIO()
         Image.fromarray(image_rgba_np, mode="RGBA").save(png_buffer, format="PNG", optimize=True)
         encoded_image: str = base64.b64encode(png_buffer.getvalue()).decode("utf-8")
-        return {
-            "status": "success",
-            "image_base64": encoded_image,
-            "overlay_bounds": {
-                "south": south_latlon[0],
-                "west": south_latlon[1],
-                "north": north_latlon[0],
-                "east": north_latlon[1],
+        return _with_meta(
+            {
+                "status": "success",
+                "image_base64": encoded_image,
+                "overlay_bounds": {
+                    "south": south_latlon[0],
+                    "west": south_latlon[1],
+                    "north": north_latlon[0],
+                    "east": north_latlon[1],
+                },
+                "imagery_provider": used_provider,
+                "imagery_provider_freshness_ts": used_provider_freshness_ts,
+                "imagery_provider_freshness_status": "known"
+                if used_provider_freshness_ts is not None
+                else "unknown",
             },
-            "imagery_provider": used_provider,
-            "imagery_provider_freshness_ts": used_provider_freshness_ts,
-            "imagery_provider_freshness_status": "known" if used_provider_freshness_ts is not None else "unknown",
-        }
+            current_user,
+        )
     except HTTPException:
         raise
     except Exception as e:
         print(f"UYDU GORSELI HATASI: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _api_error(
+            status_code=500,
+            error_code="unexpected_error",
+            message="Uydu gorseli alinirken hata olustu.",
+            details={"error": str(e)},
+        )
 
 # --- 🔥 DERİN ÖĞRENME ANALİZİ 🔥 ---
 @app.post("/api/v1/gis/analyze-satellite")
@@ -2305,7 +2443,11 @@ def analyze_satellite(
 ):
     try:
         if len(request.parcel_geometries) == 0:
-            raise HTTPException(status_code=400, detail="Parsel geometrisi bos olamaz.")
+            _api_error(
+                status_code=400,
+                error_code="validation_error",
+                message="Parsel geometrisi bos olamaz.",
+            )
         print("--- BASIT GORUNTU ANALIZI BASLIYOR ---")
         polygons = [shape(geo) for geo in request.parcel_geometries]
         merged_area = unary_union(polygons)
@@ -2399,11 +2541,19 @@ def analyze_satellite(
         save_user_state(str(current_user["id"]), user_state)
 
         print(f"Toplam {len(detected_assets)} varlık bulundu.")
-        return {"status": "success", "assets": detected_assets}
+        return _with_meta(
+            {"status": "success", "assets": detected_assets},
+            current_user,
+        )
         
     except Exception as e:
         print(f"HATA: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        _api_error(
+            status_code=500,
+            error_code="unexpected_error",
+            message="Uydu analizinde beklenmeyen hata olustu.",
+            details={"error": str(e)},
+        )
 
 @app.get("/api/v1/admin/farms")
 def admin_farms(_: Dict[str, Any] = Depends(require_admin)):
