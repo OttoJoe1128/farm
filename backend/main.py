@@ -1,7 +1,6 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Request
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import List, Dict, Any, Tuple, Optional
 import json
@@ -9,61 +8,45 @@ import os
 import math
 import base64
 import datetime
+import hashlib
+import hmac
+import uuid
 import requests
 import cv2
 import numpy as np
+import jwt
 from io import BytesIO
 from PIL import Image
 from shapely.geometry import shape, Point
 from shapely.ops import unary_union
+from services.canonical_service import (
+    canonicalize_map_items,
+    ensure_asset_identity,
+    find_asset_index_by_id,
+    iso_now_utc,
+    merge_by_latest_timestamp,
+)
+from services.work_order_service import append_work_order, update_work_order
+from services.iot_service import normalize_telemetry, detect_alerts
+from services.analytics_service import build_kpi
+from services.erp_service import run_connector_sync
 try:
     from deepforest import main as deepforest_main
 except ImportError:
     deepforest_main = None
 
-app = FastAPI(title="SmartFarm XR API", version="1.0.0")
+app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:8080",
-        "http://localhost:8080",
-        "https://127.0.0.1:8080",
-        "https://localhost:8080",
-    ],
-    allow_origin_regex=r"^https://(8000|8080)-.*\.cloudworkstations\.dev$",
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# --- Firebase Admin SDK Baslatma ---
-try:
-    from core.firebase import initialize_firebase
-    initialize_firebase()
-except Exception as firebase_err:
-    print(f"[UYARI] Firebase baslatma atlanıyor: {firebase_err}")
-
-# --- Auth ve Kullanici Yonetimi API Router ---
-try:
-    from api.v1.api import api_router
-    app.include_router(api_router, prefix="/api/v1")
-except Exception as router_err:
-    print(f"[UYARI] API router yuklenemedi: {router_err}")
-
-# --- Web Admin Paneli ---
-try:
-    from admin.router import router as admin_router
-    app.include_router(admin_router)
-    print("[BILGI] Admin paneli aktif: /admin/login")
-except Exception as admin_err:
-    print(f"[UYARI] Admin paneli yuklenemedi: {admin_err}")
-
-# --- Flutter web build dizini (tek port cozumu) ---
-FLUTTER_WEB_DIR = os.path.join(os.path.dirname(__file__), "..", "smartfarm_xr", "build", "web")
-FLUTTER_WEB_DIR = os.path.abspath(FLUTTER_WEB_DIR)
-
 DB_FILE = "digital_twin_db.json"
+USERS_FILE = "users_db.json"
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN", "")
 MAX_IMAGE_DIMENSION = 1200
 ESRI_EXPORT_URL = os.getenv(
@@ -95,6 +78,15 @@ DEFAULT_FREE_XYZ_TEMPLATES: List[str] = [
 
 provider_metadata_cache: Dict[str, Dict[str, Any]] = {}
 mapbox_runtime_disabled: bool = False
+live_websocket_clients: List[WebSocket] = []
+JWT_SECRET = os.getenv("SECRET_KEY", "smartfarm-dev-secret-change-this")
+JWT_ALGORITHM = os.getenv("ALGORITHM", "HS256")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "14"))
+DEFAULT_ADMIN_EMAIL = os.getenv("DEFAULT_ADMIN_EMAIL", "")
+DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
+DEFAULT_ADMIN_USERNAME = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
+security = HTTPBearer(auto_error=False)
 
 def get_custom_xyz_templates() -> List[str]:
     if CUSTOM_XYZ_TILE_TEMPLATES.strip() != "":
@@ -122,6 +114,67 @@ class Asset(BaseModel):
 
 class AnalysisRequest(BaseModel):
     parcel_geometries: List[Dict[str, Any]]
+
+class RegisterRequest(BaseModel):
+    email: str
+    username: str
+    password: str
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+class SyncOperation(BaseModel):
+    client_op_id: str
+    type: str
+    payload: Dict[str, Any] = {}
+    created_at: Optional[str] = None
+
+class SyncRequest(BaseModel):
+    base_version: Optional[int] = None
+    ops: List[SyncOperation] = []
+    sync_requested_at: Optional[str] = None
+
+
+class AssetMutationRequest(BaseModel):
+    asset_id: Optional[str] = None
+    asset: Optional[Dict[str, Any]] = None
+    merge_policy: Optional[str] = "latest_timestamp_wins"
+
+
+class FieldIngestRequest(BaseModel):
+    features: List[Dict[str, Any]] = []
+    gps_points: List[Dict[str, Any]] = []
+    tkgm_context: Dict[str, Any] = {}
+
+
+class WorkOrderCreateRequest(BaseModel):
+    asset_id: str
+    title: str
+    description: Optional[str] = ""
+    assignee: Optional[str] = ""
+    due_at: Optional[str] = None
+    priority: Optional[str] = "normal"
+
+
+class WorkOrderUpdateRequest(BaseModel):
+    status: Optional[str] = None
+    assignee: Optional[str] = None
+    note: Optional[str] = None
+
+
+class TelemetryIngestRequest(BaseModel):
+    asset_id: str
+    device_id: str
+    metrics: Dict[str, Any]
+    measured_at: Optional[str] = None
+
+
+class ErpSyncRequest(BaseModel):
+    connector: str = "generic"
 
 def latlon_to_meters(latitude: float, longitude: float) -> List[float]:
     earth_radius: float = 6378137.0
@@ -688,23 +741,660 @@ def fetch_masked_satellite_image(parcel_geometries: List[Dict[str, Any]]) -> Tup
     log_mask_integrity(masked_image_rgba=image_rgba_np, alpha_mask=alpha_mask)
     return image_rgba_np, minx, miny, maxx, maxy, width, height, used_provider, used_provider_freshness_ts
 
-def load_db():
-    if not os.path.exists(DB_FILE): return []
-    with open(DB_FILE, "r") as f: return json.load(f)
+def _estimate_dominant_row_angle(candidates: List[Tuple[float, float]]) -> Optional[float]:
+    if len(candidates) < 6:
+        return None
+    histogram_bins: int = 36
+    histogram: List[int] = [0 for _ in range(histogram_bins)]
+    max_pair_distance: float = 120.0
+    min_pair_distance: float = 8.0
+    for i in range(len(candidates)):
+        x1, y1 = candidates[i]
+        for j in range(i + 1, len(candidates)):
+            x2, y2 = candidates[j]
+            dx: float = x2 - x1
+            dy: float = y2 - y1
+            distance: float = math.hypot(dx, dy)
+            if distance < min_pair_distance or distance > max_pair_distance:
+                continue
+            angle: float = math.degrees(math.atan2(dy, dx)) % 180.0
+            bin_index: int = int((angle / 180.0) * histogram_bins) % histogram_bins
+            histogram[bin_index] += 1
+    best_bin: int = int(np.argmax(np.array(histogram)))
+    if histogram[best_bin] < 5:
+        return None
+    return (best_bin + 0.5) * (180.0 / histogram_bins)
 
-def save_db(data):
-    with open(DB_FILE, "w") as f: json.dump(data, f)
+def _snap_tree_candidates_to_grid(candidates: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    dominant_angle: Optional[float] = _estimate_dominant_row_angle(candidates)
+    if dominant_angle is None:
+        return candidates
+    theta: float = math.radians(dominant_angle)
+    cos_t: float = math.cos(theta)
+    sin_t: float = math.sin(theta)
+    rotated_points: List[Tuple[float, float, float, float]] = []
+    for x_coord, y_coord in candidates:
+        x_rot: float = x_coord * cos_t + y_coord * sin_t
+        y_rot: float = -x_coord * sin_t + y_coord * cos_t
+        rotated_points.append((x_coord, y_coord, x_rot, y_rot))
+    row_tolerance: float = 10.0
+    kept_points: List[Tuple[float, float]] = []
+    used_indices: set = set()
+    for base_index, (_, _, _, row_value) in enumerate(rotated_points):
+        if base_index in used_indices:
+            continue
+        row_indices: List[int] = []
+        for idx, (_, _, _, candidate_row) in enumerate(rotated_points):
+            if abs(candidate_row - row_value) <= row_tolerance:
+                row_indices.append(idx)
+        if len(row_indices) < 3:
+            continue
+        for idx in row_indices:
+            if idx in used_indices:
+                continue
+            used_indices.add(idx)
+            kept_points.append((rotated_points[idx][0], rotated_points[idx][1]))
+    if len(kept_points) == 0:
+        return candidates
+    return kept_points
+
+def _deduplicate_points(candidates: List[Tuple[float, float]], min_distance_px: float) -> List[Tuple[float, float]]:
+    if len(candidates) <= 1:
+        return candidates
+    sorted_points: List[Tuple[float, float]] = sorted(candidates, key=lambda p: (p[0], p[1]))
+    selected_points: List[Tuple[float, float]] = []
+    min_distance_sq: float = min_distance_px * min_distance_px
+    for point_x, point_y in sorted_points:
+        is_close: bool = False
+        for existing_x, existing_y in selected_points:
+            distance_sq: float = (point_x - existing_x) ** 2 + (point_y - existing_y) ** 2
+            if distance_sq < min_distance_sq:
+                is_close = True
+                break
+        if not is_close:
+            selected_points.append((point_x, point_y))
+    return selected_points
+
+def _nearest_neighbor_distances(candidates: List[Tuple[float, float]]) -> List[float]:
+    if len(candidates) < 2:
+        return []
+    distances: List[float] = []
+    for i, (x1, y1) in enumerate(candidates):
+        nearest: Optional[float] = None
+        for j, (x2, y2) in enumerate(candidates):
+            if i == j:
+                continue
+            d = math.hypot(x2 - x1, y2 - y1)
+            if nearest is None or d < nearest:
+                nearest = d
+        if nearest is not None:
+            distances.append(nearest)
+    return distances
+
+def _filter_orchard_like_points(candidates: List[Tuple[float, float]]) -> List[Tuple[float, float]]:
+    if len(candidates) < 6:
+        return candidates
+    nearest_distances: List[float] = _nearest_neighbor_distances(candidates)
+    if len(nearest_distances) == 0:
+        return candidates
+    plausible_distances: List[float] = [d for d in nearest_distances if 2.0 <= d <= 55.0]
+    if len(plausible_distances) < 4:
+        return candidates
+    median_distance: float = float(np.median(np.array(plausible_distances)))
+    if median_distance <= 0:
+        return candidates
+    min_neighbor_distance: float = 0.50 * median_distance
+    max_neighbor_distance: float = 2.00 * median_distance
+    filtered_points: List[Tuple[float, float]] = []
+    for i, (x1, y1) in enumerate(candidates):
+        neighbor_count: int = 0
+        for j, (x2, y2) in enumerate(candidates):
+            if i == j:
+                continue
+            d = math.hypot(x2 - x1, y2 - y1)
+            if min_neighbor_distance <= d <= max_neighbor_distance:
+                neighbor_count += 1
+        required_neighbors: int = 2 if len(candidates) >= 60 else 1
+        if neighbor_count >= required_neighbors:
+            filtered_points.append((x1, y1))
+    if len(filtered_points) < max(4, int(len(candidates) * 0.45)):
+        return candidates
+    return filtered_points
+
+def _adaptive_min_distance(candidates: List[Tuple[float, float]], fallback_distance: float = 2.2) -> float:
+    nearest_distances: List[float] = _nearest_neighbor_distances(candidates)
+    if len(nearest_distances) < 3:
+        return fallback_distance
+    plausible: List[float] = [d for d in nearest_distances if 1.2 <= d <= 40.0]
+    if len(plausible) < 3:
+        return fallback_distance
+    median_distance: float = float(np.median(np.array(plausible)))
+    return max(fallback_distance, 0.42 * median_distance)
+
+def _fill_grid_gaps(
+    candidates: List[Tuple[float, float]],
+    blackhat_image: np.ndarray,
+) -> List[Tuple[float, float]]:
+    if len(candidates) < 8:
+        return candidates
+    dominant_angle: Optional[float] = _estimate_dominant_row_angle(candidates)
+    if dominant_angle is None:
+        return candidates
+    nearest_distances: List[float] = _nearest_neighbor_distances(candidates)
+    plausible_distances: List[float] = [d for d in nearest_distances if 2.0 <= d <= 50.0]
+    if len(plausible_distances) < 4:
+        return candidates
+    median_distance: float = float(np.median(np.array(plausible_distances)))
+    if median_distance <= 1.0:
+        return candidates
+    theta: float = math.radians(dominant_angle)
+    cos_t: float = math.cos(theta)
+    sin_t: float = math.sin(theta)
+    rotated_points: List[Tuple[float, float, float, float]] = []
+    for x_coord, y_coord in candidates:
+        x_rot: float = x_coord * cos_t + y_coord * sin_t
+        y_rot: float = -x_coord * sin_t + y_coord * cos_t
+        rotated_points.append((x_coord, y_coord, x_rot, y_rot))
+    row_tolerance: float = max(4.0, 0.45 * median_distance)
+    row_groups: List[List[Tuple[float, float, float, float]]] = []
+    for point in rotated_points:
+        assigned: bool = False
+        for group in row_groups:
+            mean_row: float = float(np.mean(np.array([g[3] for g in group])))
+            if abs(point[3] - mean_row) <= row_tolerance:
+                group.append(point)
+                assigned = True
+                break
+        if not assigned:
+            row_groups.append([point])
+    filled_points: List[Tuple[float, float]] = list(candidates)
+    image_height: int = int(blackhat_image.shape[0])
+    image_width: int = int(blackhat_image.shape[1])
+    blackhat_threshold: float = float(np.percentile(blackhat_image, 78))
+    for group in row_groups:
+        if len(group) < 3:
+            continue
+        sorted_group = sorted(group, key=lambda item: item[2])
+        for idx in range(len(sorted_group) - 1):
+            x1_rot: float = sorted_group[idx][2]
+            x2_rot: float = sorted_group[idx + 1][2]
+            y_rot: float = float((sorted_group[idx][3] + sorted_group[idx + 1][3]) / 2.0)
+            gap: float = x2_rot - x1_rot
+            if gap < (1.8 * median_distance) or gap > (3.8 * median_distance):
+                continue
+            expected_steps: int = int(round(gap / median_distance))
+            if expected_steps < 2:
+                continue
+            for step in range(1, expected_steps):
+                x_new_rot: float = x1_rot + (gap * (step / expected_steps))
+                x_new: float = x_new_rot * cos_t - y_rot * sin_t
+                y_new: float = x_new_rot * sin_t + y_rot * cos_t
+                px: int = int(round(x_new))
+                py: int = int(round(y_new))
+                if px < 1 or py < 1 or px >= (image_width - 1) or py >= (image_height - 1):
+                    continue
+                local_patch = blackhat_image[py - 1 : py + 2, px - 1 : px + 2]
+                if float(np.mean(local_patch)) < blackhat_threshold:
+                    continue
+                filled_points.append((x_new, y_new))
+    return filled_points
+
+def detect_simple_tree_candidates(image_rgba_np: np.ndarray) -> List[Tuple[float, float]]:
+    image_bgr: np.ndarray = cv2.cvtColor(image_rgba_np, cv2.COLOR_RGBA2BGR)
+    hsv_image: np.ndarray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
+    green_mask: np.ndarray = cv2.inRange(hsv_image, (30, 20, 20), (95, 255, 255))
+    brown_mask_1: np.ndarray = cv2.inRange(hsv_image, (5, 20, 15), (25, 255, 180))
+    dark_mask: np.ndarray = cv2.inRange(hsv_image, (0, 0, 0), (180, 120, 95))
+    combined_mask: np.ndarray = cv2.bitwise_or(green_mask, brown_mask_1)
+    combined_mask = cv2.bitwise_or(combined_mask, dark_mask)
+    # Kucuk koyu fidan noktalarini one cikarmak icin black-hat kullan.
+    gray_image: np.ndarray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    blackhat_kernel: np.ndarray = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+    blackhat_image: np.ndarray = cv2.morphologyEx(gray_image, cv2.MORPH_BLACKHAT, blackhat_kernel)
+    blackhat_threshold: float = float(np.percentile(blackhat_image, 80))
+    _, blackhat_mask = cv2.threshold(
+        blackhat_image,
+        max(10.0, blackhat_threshold),
+        255,
+        cv2.THRESH_BINARY,
+    )
+    combined_mask = cv2.bitwise_or(combined_mask, blackhat_mask)
+    kernel: np.ndarray = np.ones((3, 3), np.uint8)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel, iterations=1)
+    component_count, _, stats, centroids = cv2.connectedComponentsWithStats(combined_mask, connectivity=8)
+    image_area: int = int(image_rgba_np.shape[0] * image_rgba_np.shape[1])
+    min_area: int = max(6, int(image_area * 0.000004))
+    max_area: int = max(min_area + 1, int(image_area * 0.0028))
+    candidates: List[Tuple[float, float]] = []
+    border_margin: int = 4
+    image_height: int = int(image_rgba_np.shape[0])
+    image_width: int = int(image_rgba_np.shape[1])
+    for component_index in range(1, component_count):
+        area: int = int(stats[component_index, cv2.CC_STAT_AREA])
+        if area < min_area or area > max_area:
+            continue
+        left_px: int = int(stats[component_index, cv2.CC_STAT_LEFT])
+        top_px: int = int(stats[component_index, cv2.CC_STAT_TOP])
+        width_px: int = int(stats[component_index, cv2.CC_STAT_WIDTH])
+        height_px: int = int(stats[component_index, cv2.CC_STAT_HEIGHT])
+        if (
+            left_px <= border_margin
+            or top_px <= border_margin
+            or (left_px + width_px) >= (image_width - border_margin)
+            or (top_px + height_px) >= (image_height - border_margin)
+        ):
+            continue
+        bbox_area: float = float(max(width_px * height_px, 1))
+        fill_ratio: float = area / bbox_area
+        if fill_ratio < 0.10:
+            continue
+        center_x: float = float(centroids[component_index][0])
+        center_y: float = float(centroids[component_index][1])
+        candidates.append((center_x, center_y))
+    candidates = _deduplicate_points(candidates, min_distance_px=1.6)
+    candidates = _filter_orchard_like_points(candidates)
+    candidates = _fill_grid_gaps(candidates, blackhat_image=blackhat_image)
+    candidates = _snap_tree_candidates_to_grid(candidates)
+    candidates = _deduplicate_points(candidates, min_distance_px=_adaptive_min_distance(candidates))
+    return candidates
+
+def detect_simple_structure_candidates(image_rgba_np: np.ndarray) -> List[List[Tuple[float, float]]]:
+    image_bgr: np.ndarray = cv2.cvtColor(image_rgba_np, cv2.COLOR_RGBA2BGR)
+    gray_image: np.ndarray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
+    blurred: np.ndarray = cv2.GaussianBlur(gray_image, (5, 5), 0)
+    adaptive_mask: np.ndarray = cv2.adaptiveThreshold(
+        blurred,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY_INV,
+        25,
+        4,
+    )
+    edges: np.ndarray = cv2.Canny(blurred, 45, 135)
+    combined_mask: np.ndarray = cv2.bitwise_or(adaptive_mask, edges)
+    kernel: np.ndarray = np.ones((3, 3), np.uint8)
+    combined_mask = cv2.morphologyEx(combined_mask, cv2.MORPH_CLOSE, kernel, iterations=2)
+    contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    image_area: float = float(image_rgba_np.shape[0] * image_rgba_np.shape[1])
+    min_area: float = max(90.0, image_area * 0.00016)
+    max_area: float = max(min_area + 1.0, image_area * 0.55)
+    candidates: List[List[Tuple[float, float]]] = []
+    image_height: int = int(image_rgba_np.shape[0])
+    image_width: int = int(image_rgba_np.shape[1])
+    border_margin: int = 2
+    for contour in contours:
+        area: float = cv2.contourArea(contour)
+        if area < min_area or area > max_area:
+            continue
+        perimeter: float = cv2.arcLength(contour, True)
+        if perimeter <= 0:
+            continue
+        approx: np.ndarray = cv2.approxPolyDP(contour, 0.04 * perimeter, True)
+        if len(approx) < 3 or len(approx) > 10:
+            continue
+        if not cv2.isContourConvex(approx):
+            continue
+        x_box, y_box, width_box, height_box = cv2.boundingRect(approx)
+        if (
+            x_box <= border_margin
+            or y_box <= border_margin
+            or (x_box + width_box) >= (image_width - border_margin)
+            or (y_box + height_box) >= (image_height - border_margin)
+        ):
+            continue
+        bounding_area: float = float(max(width_box * height_box, 1))
+        rectangularity: float = area / bounding_area
+        aspect_ratio: float = float(width_box) / float(max(height_box, 1))
+        hull: np.ndarray = cv2.convexHull(contour)
+        hull_area: float = float(max(cv2.contourArea(hull), 1.0))
+        solidity: float = area / hull_area
+        min_rect = cv2.minAreaRect(contour)
+        min_rect_area: float = float(max(min_rect[1][0] * min_rect[1][1], 1.0))
+        oriented_rect_ratio: float = area / min_rect_area
+        if (
+            rectangularity < 0.50
+            or aspect_ratio < 0.25
+            or aspect_ratio > 5.0
+            or solidity < 0.72
+            or oriented_rect_ratio < 0.52
+        ):
+            continue
+        if len(approx) >= 4:
+            angle_ok_count: int = 0
+            point_list: List[Tuple[float, float]] = [(float(p[0][0]), float(p[0][1])) for p in approx]
+            for index in range(len(point_list)):
+                p_prev = point_list[index - 1]
+                p_curr = point_list[index]
+                p_next = point_list[(index + 1) % len(point_list)]
+                vec1 = np.array([p_prev[0] - p_curr[0], p_prev[1] - p_curr[1]], dtype=np.float64)
+                vec2 = np.array([p_next[0] - p_curr[0], p_next[1] - p_curr[1]], dtype=np.float64)
+                norm1 = np.linalg.norm(vec1)
+                norm2 = np.linalg.norm(vec2)
+                if norm1 < 1e-6 or norm2 < 1e-6:
+                    continue
+                cos_angle = float(np.dot(vec1, vec2) / (norm1 * norm2))
+                cos_angle = max(-1.0, min(1.0, cos_angle))
+                angle_deg = math.degrees(math.acos(cos_angle))
+                if 35.0 <= angle_deg <= 160.0:
+                    angle_ok_count += 1
+            if angle_ok_count < max(3, int(len(point_list) * 0.7)):
+                continue
+        roi = blurred[y_box : y_box + height_box, x_box : x_box + width_box]
+        if roi.size > 0:
+            texture_std: float = float(np.std(roi))
+            if texture_std > 50.0:
+                # Yogun dogal doku (agac/bitki) ise yapi adayi olmasin.
+                continue
+        polygon_pixels: List[Tuple[float, float]] = []
+        for point in approx:
+            if len(point) == 0:
+                continue
+            px: float = float(point[0][0])
+            py: float = float(point[0][1])
+            polygon_pixels.append((px, py))
+        if len(polygon_pixels) >= 3:
+            candidates.append(polygon_pixels)
+    return candidates
+
+def _read_json_file(path: str, default_value: Any) -> Any:
+    if not os.path.exists(path):
+        return default_value
+    try:
+        with open(path, "r", encoding="utf-8") as file_obj:
+            return json.load(file_obj)
+    except Exception:
+        return default_value
+
+def _write_json_file(path: str, payload: Any) -> None:
+    with open(path, "w", encoding="utf-8") as file_obj:
+        json.dump(payload, file_obj, ensure_ascii=False)
+
+def load_users_db() -> Dict[str, Any]:
+    raw_data: Any = _read_json_file(USERS_FILE, {"users": []})
+    if not isinstance(raw_data, dict):
+        return {"users": []}
+    users_list: Any = raw_data.get("users", [])
+    if not isinstance(users_list, list):
+        users_list = []
+    return {"users": users_list}
+
+def save_users_db(payload: Dict[str, Any]) -> None:
+    _write_json_file(USERS_FILE, payload)
+
+def _hash_password(password: str, salt: str) -> str:
+    hash_input: str = f"{salt}:{password}"
+    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+
+def _build_user_response(user: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": user.get("id"),
+        "email": user.get("email"),
+        "username": user.get("username"),
+        "role": user.get("role", "user"),
+    }
+
+def _find_user_by_email(email: str) -> Optional[Dict[str, Any]]:
+    users_db: Dict[str, Any] = load_users_db()
+    for user in users_db["users"]:
+        if str(user.get("email", "")).lower() == email.lower():
+            return user
+    return None
+
+def _find_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
+    users_db: Dict[str, Any] = load_users_db()
+    for user in users_db["users"]:
+        if str(user.get("id")) == str(user_id):
+            return user
+    return None
+
+def _create_token(user: Dict[str, Any], expires_delta: datetime.timedelta, token_type: str) -> str:
+    now_utc: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
+    expires_at: datetime.datetime = now_utc + expires_delta
+    payload: Dict[str, Any] = {
+        "sub": user.get("id"),
+        "role": user.get("role", "user"),
+        "type": token_type,
+        "iat": int(now_utc.timestamp()),
+        "exp": int(expires_at.timestamp()),
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+
+def _create_auth_payload(user: Dict[str, Any]) -> Dict[str, Any]:
+    access_token: str = _create_token(
+        user=user,
+        expires_delta=datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+        token_type="access",
+    )
+    refresh_token: str = _create_token(
+        user=user,
+        expires_delta=datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+        token_type="refresh",
+    )
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": _build_user_response(user),
+    }
+
+def _decode_token(token: str, expected_type: str) -> Dict[str, Any]:
+    try:
+        payload: Dict[str, Any] = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except Exception as decode_error:
+        raise HTTPException(status_code=401, detail=f"Gecersiz token: {decode_error}")
+    token_type: str = str(payload.get("type", ""))
+    if token_type != expected_type:
+        raise HTTPException(status_code=401, detail="Token tipi gecersiz.")
+    return payload
+
+def ensure_default_admin() -> None:
+    if DEFAULT_ADMIN_EMAIL.strip() == "" or DEFAULT_ADMIN_PASSWORD.strip() == "":
+        return
+    users_db: Dict[str, Any] = load_users_db()
+    for user in users_db["users"]:
+        if str(user.get("email", "")).lower() == DEFAULT_ADMIN_EMAIL.lower():
+            return
+    salt: str = uuid.uuid4().hex
+    users_db["users"].append(
+        {
+            "id": uuid.uuid4().hex,
+            "email": DEFAULT_ADMIN_EMAIL.strip().lower(),
+            "username": DEFAULT_ADMIN_USERNAME.strip(),
+            "password_salt": salt,
+            "password_hash": _hash_password(DEFAULT_ADMIN_PASSWORD, salt),
+            "role": "admin",
+            "created_at": datetime.datetime.utcnow().isoformat(),
+        }
+    )
+    save_users_db(users_db)
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
+) -> Dict[str, Any]:
+    if credentials is None or str(credentials.credentials).strip() == "":
+        raise HTTPException(status_code=401, detail="Yetkilendirme gerekli.")
+    payload: Dict[str, Any] = _decode_token(credentials.credentials, "access")
+    user_id: str = str(payload.get("sub", ""))
+    user: Optional[Dict[str, Any]] = _find_user_by_id(user_id)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Kullanici bulunamadi.")
+    return user
+
+def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
+    if str(current_user.get("role", "user")) != "admin":
+        raise HTTPException(status_code=403, detail="Admin yetkisi gerekli.")
+    return current_user
+
+def load_db() -> Dict[str, Any]:
+    raw_data: Any = _read_json_file(DB_FILE, {"users": {}})
+    if isinstance(raw_data, list):
+        return {"users": {"legacy": {"map": raw_data, "version": 1, "updated_at": datetime.datetime.utcnow().isoformat(), "processed_op_ids": []}}}
+    if not isinstance(raw_data, dict):
+        return {"users": {}}
+    if not isinstance(raw_data.get("users"), dict):
+        raw_data["users"] = {}
+    return raw_data
+
+def save_db(data: Dict[str, Any]) -> None:
+    _write_json_file(DB_FILE, data)
+
+def _empty_user_state() -> Dict[str, Any]:
+    return {
+        "map": [],
+        "version": 0,
+        "updated_at": None,
+        "processed_op_ids": [],
+        "work_orders": [],
+        "telemetry_log": [],
+        "alerts": [],
+        "integration_jobs": [],
+    }
+
+def get_user_state(user_id: str) -> Dict[str, Any]:
+    db_data: Dict[str, Any] = load_db()
+    users_bucket: Dict[str, Any] = db_data["users"]
+    if user_id not in users_bucket or not isinstance(users_bucket[user_id], dict):
+        users_bucket[user_id] = _empty_user_state()
+        save_db(db_data)
+    user_state: Dict[str, Any] = users_bucket[user_id]
+    if not isinstance(user_state.get("map"), list):
+        user_state["map"] = []
+    user_state["map"] = canonicalize_map_items(user_state["map"])
+    if not isinstance(user_state.get("processed_op_ids"), list):
+        user_state["processed_op_ids"] = []
+    if not isinstance(user_state.get("work_orders"), list):
+        user_state["work_orders"] = []
+    if not isinstance(user_state.get("telemetry_log"), list):
+        user_state["telemetry_log"] = []
+    if not isinstance(user_state.get("alerts"), list):
+        user_state["alerts"] = []
+    if not isinstance(user_state.get("integration_jobs"), list):
+        user_state["integration_jobs"] = []
+    if not isinstance(user_state.get("version"), int):
+        user_state["version"] = 0
+    return user_state
+
+def save_user_state(user_id: str, user_state: Dict[str, Any]) -> None:
+    db_data: Dict[str, Any] = load_db()
+    if "users" not in db_data or not isinstance(db_data["users"], dict):
+        db_data["users"] = {}
+    db_data["users"][user_id] = user_state
+    save_db(db_data)
+
+def _touch_user_state(user_state: Dict[str, Any]) -> None:
+    user_state["version"] = int(user_state.get("version", 0)) + 1
+    user_state["updated_at"] = datetime.datetime.utcnow().isoformat()
+
+
+def _find_asset_index(map_data: List[Dict[str, Any]], payload: Dict[str, Any]) -> int:
+    asset_id_text: str = str(payload.get("asset_id", "")).strip()
+    if asset_id_text != "":
+        return find_asset_index_by_id(map_data, asset_id_text)
+    try:
+        index_value = int(payload.get("index", -1))
+    except Exception:
+        index_value = -1
+    if 0 <= index_value < len(map_data):
+        return index_value
+    return -1
+
+
+async def _broadcast_live_event(event_payload: Dict[str, Any]) -> None:
+    if len(live_websocket_clients) == 0:
+        return
+    disconnected: List[WebSocket] = []
+    for client in live_websocket_clients:
+        try:
+            await client.send_json(event_payload)
+        except Exception:
+            disconnected.append(client)
+    if len(disconnected) > 0:
+        for dead_client in disconnected:
+            if dead_client in live_websocket_clients:
+                live_websocket_clients.remove(dead_client)
+
+ensure_default_admin()
+
+@app.post("/api/v1/auth/register")
+def register(request: RegisterRequest):
+    email_text: str = request.email.strip().lower()
+    username_text: str = request.username.strip()
+    password_text: str = request.password.strip()
+    if email_text == "" or username_text == "" or password_text == "":
+        raise HTTPException(status_code=400, detail="Email, kullanici adi ve sifre zorunlu.")
+    if _find_user_by_email(email_text) is not None:
+        raise HTTPException(status_code=409, detail="Bu email zaten kayitli.")
+    users_db: Dict[str, Any] = load_users_db()
+    is_first_user: bool = len(users_db["users"]) == 0
+    salt: str = uuid.uuid4().hex
+    user_record: Dict[str, Any] = {
+        "id": uuid.uuid4().hex,
+        "email": email_text,
+        "username": username_text,
+        "password_salt": salt,
+        "password_hash": _hash_password(password_text, salt),
+        "role": "admin" if is_first_user else "user",
+        "created_at": datetime.datetime.utcnow().isoformat(),
+    }
+    users_db["users"].append(user_record)
+    save_users_db(users_db)
+    return _create_auth_payload(user_record)
+
+@app.post("/api/v1/auth/login")
+def login(request: LoginRequest):
+    email_text: str = request.email.strip().lower()
+    password_text: str = request.password.strip()
+    user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Kullanici bulunamadi.")
+    expected_hash: str = str(user.get("password_hash", ""))
+    salt: str = str(user.get("password_salt", ""))
+    if not hmac.compare_digest(expected_hash, _hash_password(password_text, salt)):
+        raise HTTPException(status_code=401, detail="Sifre hatali.")
+    return _create_auth_payload(user)
+
+@app.post("/api/v1/auth/refresh")
+def refresh_token(request: RefreshRequest):
+    payload: Dict[str, Any] = _decode_token(request.refresh_token, "refresh")
+    user: Optional[Dict[str, Any]] = _find_user_by_id(str(payload.get("sub", "")))
+    if user is None:
+        raise HTTPException(status_code=401, detail="Kullanici bulunamadi.")
+    return _create_auth_payload(user)
+
+@app.get("/api/v1/auth/me")
+def me(current_user: Dict[str, Any] = Depends(get_current_user)):
+    return _build_user_response(current_user)
 
 @app.get("/api/v1/gis/map")
-def get_map(): return load_db()
+def get_map(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    return canonicalize_map_items(user_state["map"])
+
+@app.get("/api/v1/gis/snapshot")
+def get_snapshot(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data = canonicalize_map_items(user_state["map"])
+    user_state["map"] = map_data
+    return {
+        "map": map_data,
+        "version": user_state.get("version", 0),
+        "updated_at": user_state.get("updated_at"),
+    }
 
 @app.delete("/api/v1/gis/reset-map")
-def reset_map():
-    save_db([])
+def reset_map(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_state["map"] = []
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
     return {"status": "cleared"}
 
 @app.post("/api/v1/gis/upload-map")
-async def upload_map(file: UploadFile = File(...)):
+async def upload_map(
+    file: UploadFile = File(...),
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     temp_path: str = f"temp_upload_{file.filename}"
     try:
         with open(temp_path, "wb") as temp_file:
@@ -741,148 +1431,459 @@ async def upload_map(file: UploadFile = File(...)):
             })
         if len(data) == 0:
             raise HTTPException(status_code=400, detail="Dosyada islenebilir geometri bulunamadi.")
-        current_db = load_db()
-        current_db.extend(data)
-        save_db(current_db)
+        user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+        current_map: List[Dict[str, Any]] = list(user_state.get("map", []))
+        current_map.extend(canonicalize_map_items(data))
+        user_state["map"] = current_map
+        _touch_user_state(user_state)
+        save_user_state(str(current_user["id"]), user_state)
         return {"status": "success", "data": data}
     finally:
         if os.path.exists(temp_path):
             os.remove(temp_path)
 
 @app.post("/api/v1/gis/add-asset")
-def add_asset(asset: Asset):
-    db = load_db()
-    asset_data = asset.dict()
-    # Saha uygulamasindan gelen kaynak bilgisini ekle
-    if "source" not in asset_data.get("properties", {}):
-        asset_data.setdefault("properties", {})["source"] = "web_app"
-    db.append(asset_data)
-    save_db(db)
-    return {"status": "success"}
-
-class BatchAssetRequest(BaseModel):
-    """Toplu varlik ekleme istegi - tek istekte 50'ye kadar varlik"""
-    assets: List[Asset]
-
-@app.post("/api/v1/gis/batch-add-assets")
-def batch_add_assets(request: BatchAssetRequest):
-    """Toplu varlik ekleme - saha uygulamasindan gelen verileri toplu kaydeder.
-    Tek istekte maksimum 50 varlik kabul eder."""
-    if len(request.assets) > 50:
-        raise HTTPException(
-            status_code=400,
-            detail="Tek istekte maksimum 50 varlik gonderilebilir."
-        )
-    db = load_db()
-    added_count: int = 0
-    errors: List[str] = []
-    for i, asset in enumerate(request.assets):
-        try:
-            asset_data = asset.dict()
-            asset_data.setdefault("properties", {})["source"] = asset_data.get("properties", {}).get("source", "field_app")
-            db.append(asset_data)
-            added_count += 1
-        except Exception as e:
-            errors.append(f"Varlik {i}: {str(e)}")
-    save_db(db)
-    return {
-        "status": "success",
-        "added_count": added_count,
-        "total_requested": len(request.assets),
-        "errors": errors
-    }
+def add_asset(asset: Asset, current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    new_asset = ensure_asset_identity(asset.dict())
+    map_data.append(new_asset)
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "success", "asset": new_asset}
 
 @app.put("/api/v1/gis/update-asset/{index}")
-def update_asset(index: int, asset: Asset):
-    db = load_db()
-    if index < 0 or index >= len(db): raise HTTPException(status_code=404, detail="Asset not found")
-    db[index] = asset.dict()
-    save_db(db)
+def update_asset(index: int, asset: Asset, current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    if index < 0 or index >= len(map_data):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    existing_asset = ensure_asset_identity(map_data[index])
+    incoming_asset = ensure_asset_identity(asset.dict())
+    map_data[index] = merge_by_latest_timestamp(existing_asset, incoming_asset)
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
     return {"status": "updated"}
 
 @app.delete("/api/v1/gis/delete-asset/{index}")
-def delete_asset(index: int):
-    db = load_db()
-    if index < 0 or index >= len(db): raise HTTPException(status_code=404, detail="Asset not found")
-    db.pop(index)
-    save_db(db)
+def delete_asset(index: int, current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    if index < 0 or index >= len(map_data):
+        raise HTTPException(status_code=404, detail="Asset not found")
+    map_data.pop(index)
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
     return {"status": "deleted"}
 
-@app.post("/api/v1/gis/upload-assets")
-async def upload_assets(file: UploadFile = File(...)):
-    """Toplu varlik ice aktarma. GeoJSON (Point verisi) veya CSV (ad,tip,enlem,boylam,iot_bagli) destekler."""
-    temp_path: str = f"temp_assets_{file.filename}"
+
+@app.post("/api/v1/gis/update-asset-by-id")
+def update_asset_by_id(
+    request: AssetMutationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    asset_id: str = str(request.asset_id or "").strip()
+    if asset_id == "" or request.asset is None:
+        raise HTTPException(status_code=400, detail="asset_id ve asset zorunludur.")
+    target_index: int = find_asset_index_by_id(map_data, asset_id)
+    if target_index < 0:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    existing_asset = ensure_asset_identity(map_data[target_index])
+    incoming_asset = ensure_asset_identity({**request.asset, "asset_id": asset_id})
+    if str(request.merge_policy or "latest_timestamp_wins") == "latest_timestamp_wins":
+        map_data[target_index] = merge_by_latest_timestamp(existing_asset, incoming_asset)
+    else:
+        map_data[target_index] = incoming_asset
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "updated", "asset": map_data[target_index]}
+
+
+@app.post("/api/v1/gis/delete-asset-by-id")
+def delete_asset_by_id(
+    request: AssetMutationRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    asset_id: str = str(request.asset_id or "").strip()
+    if asset_id == "":
+        raise HTTPException(status_code=400, detail="asset_id zorunludur.")
+    target_index: int = find_asset_index_by_id(map_data, asset_id)
+    if target_index < 0:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    removed_asset = map_data.pop(target_index)
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "deleted", "asset": removed_asset}
+
+@app.post("/api/v1/gis/sync")
+def sync_gis(
+    request: SyncRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_id: str = str(current_user["id"])
+    user_state: Dict[str, Any] = get_user_state(user_id)
+    server_version: int = int(user_state.get("version", 0))
+    if (
+        request.base_version is not None
+        and request.base_version != server_version
+        and len(request.ops) > 0
+    ):
+        return {
+            "status": "conflict",
+            "reason": "version_mismatch",
+            "map": user_state.get("map", []),
+            "version": server_version,
+            "updated_at": user_state.get("updated_at"),
+        }
+    map_data: List[Dict[str, Any]] = canonicalize_map_items(list(user_state.get("map", [])))
+    processed_ops: List[str] = list(user_state.get("processed_op_ids", []))
+    processed_set = set(processed_ops)
+    applied_count: int = 0
+    skipped_count: int = 0
+    conflicts: List[Dict[str, Any]] = []
+    for op in request.ops:
+        op_id: str = str(op.client_op_id).strip()
+        if op_id == "" or op_id in processed_set:
+            skipped_count += 1
+            continue
+        payload: Dict[str, Any] = dict(op.payload or {})
+        op_type: str = str(op.type)
+        if op_type == "add_asset":
+            asset_obj: Any = payload.get("asset")
+            if isinstance(asset_obj, dict):
+                map_data.append(ensure_asset_identity(asset_obj))
+                applied_count += 1
+        elif op_type == "update_asset":
+            asset_obj = payload.get("asset")
+            target_index: int = _find_asset_index(map_data, payload)
+            if isinstance(asset_obj, dict) and 0 <= target_index < len(map_data):
+                existing_asset = ensure_asset_identity(map_data[target_index])
+                incoming_asset = ensure_asset_identity(asset_obj)
+                resolved_asset = merge_by_latest_timestamp(existing_asset, incoming_asset)
+                map_data[target_index] = resolved_asset
+                applied_count += 1
+            else:
+                conflicts.append(
+                    {
+                        "type": "update_asset_not_found",
+                        "client_op_id": op_id,
+                        "asset_id": payload.get("asset_id"),
+                        "index": payload.get("index"),
+                    }
+                )
+        elif op_type == "delete_asset":
+            target_index = _find_asset_index(map_data, payload)
+            if 0 <= target_index < len(map_data):
+                map_data.pop(target_index)
+                applied_count += 1
+            else:
+                conflicts.append(
+                    {
+                        "type": "delete_asset_not_found",
+                        "client_op_id": op_id,
+                        "asset_id": payload.get("asset_id"),
+                        "index": payload.get("index"),
+                    }
+                )
+        elif op_type == "upload_parcel":
+            features: Any = payload.get("features", [])
+            if isinstance(features, list) and len(features) > 0:
+                for feature in features:
+                    if isinstance(feature, dict):
+                        map_data.append(ensure_asset_identity(feature))
+                applied_count += 1
+        elif op_type == "replace_snapshot":
+            full_map: Any = payload.get("map")
+            if isinstance(full_map, list):
+                map_data = canonicalize_map_items([item for item in full_map if isinstance(item, dict)])
+                applied_count += 1
+        processed_set.add(op_id)
+    if applied_count > 0:
+        user_state["map"] = map_data
+        _touch_user_state(user_state)
+    user_state["processed_op_ids"] = list(processed_set)[-500:]
+    save_user_state(user_id, user_state)
+    return {
+        "status": "ok",
+        "applied": applied_count,
+        "skipped": skipped_count,
+        "map": canonicalize_map_items(user_state.get("map", [])),
+        "version": user_state.get("version", 0),
+        "updated_at": user_state.get("updated_at"),
+        "conflicts": conflicts,
+        "sync_requested_at": request.sync_requested_at or iso_now_utc(),
+    }
+
+
+@app.post("/api/v1/field/ingest")
+def ingest_field_data(
+    request: FieldIngestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    staged_items: List[Dict[str, Any]] = []
+    for feature in request.features:
+        if not isinstance(feature, dict):
+            continue
+        feature_copy: Dict[str, Any] = dict(feature)
+        feature_props: Dict[str, Any] = dict(feature_copy.get("properties", {}))
+        feature_props["ingest_source"] = "field_feature"
+        feature_props["ingested_at"] = iso_now_utc()
+        if len(request.tkgm_context) > 0:
+            feature_props["tkgm_context"] = dict(request.tkgm_context)
+        feature_copy["properties"] = feature_props
+        staged_items.append(feature_copy)
+    for raw_point in request.gps_points:
+        if not isinstance(raw_point, dict):
+            continue
+        try:
+            latitude = float(raw_point.get("lat"))
+            longitude = float(raw_point.get("lng"))
+        except Exception:
+            continue
+        staged_items.append(
+            {
+                "name": str(raw_point.get("name") or "Saha Noktası"),
+                "type": "Point",
+                "geometry": {"type": "Point", "coordinates": [longitude, latitude]},
+                "style": {"color": "#03A9F4", "icon": "gps_fixed"},
+                "properties": {
+                    "iot_connected": False,
+                    "ingest_source": "gps_capture",
+                    "captured_at": str(raw_point.get("captured_at") or iso_now_utc()),
+                    "accuracy_m": raw_point.get("accuracy_m"),
+                    "operator": raw_point.get("operator"),
+                    "tkgm_context": dict(request.tkgm_context),
+                },
+            }
+        )
+    if len(staged_items) == 0:
+        return {"status": "ok", "ingested": 0, "map": canonicalize_map_items(map_data)}
+    map_data.extend(canonicalize_map_items(staged_items))
+    user_state["map"] = map_data
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {
+        "status": "ok",
+        "ingested": len(staged_items),
+        "map": canonicalize_map_items(map_data),
+        "version": user_state.get("version", 0),
+        "updated_at": user_state.get("updated_at"),
+    }
+
+
+@app.get("/api/v1/work-orders")
+def list_work_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
+    return {"status": "ok", "items": work_orders, "count": len(work_orders)}
+
+
+@app.post("/api/v1/work-orders")
+def create_work_order(
+    request: WorkOrderCreateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    payload: Dict[str, Any] = {
+        "asset_id": request.asset_id,
+        "title": request.title,
+        "description": request.description or "",
+        "assignee": request.assignee or "",
+        "due_at": request.due_at,
+        "priority": request.priority or "normal",
+        "status": "open",
+    }
+    created = append_work_order(work_orders, payload)
+    target_index = find_asset_index_by_id(map_data, request.asset_id)
+    if 0 <= target_index < len(map_data):
+        target_asset = ensure_asset_identity(map_data[target_index])
+        props: Dict[str, Any] = dict(target_asset.get("properties", {}))
+        audit: List[Any] = list(props.get("audit_log", []))
+        audit.append(
+            {
+                "at": iso_now_utc(),
+                "event": "work_order_created",
+                "work_order_id": created.get("work_order_id"),
+            }
+        )
+        props["audit_log"] = audit[-200:]
+        target_asset["properties"] = props
+        map_data[target_index] = target_asset
+        user_state["map"] = map_data
+    user_state["work_orders"] = work_orders
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "ok", "item": created}
+
+
+@app.patch("/api/v1/work-orders/{work_order_id}")
+def patch_work_order(
+    work_order_id: str,
+    request: WorkOrderUpdateRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
+    patch_data: Dict[str, Any] = {}
+    if request.status is not None:
+        patch_data["status"] = request.status
+    if request.assignee is not None:
+        patch_data["assignee"] = request.assignee
+    if request.note is not None:
+        patch_data["note"] = request.note
     try:
-        content_bytes: bytes = await file.read()
-        with open(temp_path, "wb") as temp_file:
-            temp_file.write(content_bytes)
-        filename_lower: str = (file.filename or "").lower()
-        data: List[Dict[str, Any]] = []
-        if filename_lower.endswith(".csv"):
-            import csv
-            text_content: str = content_bytes.decode("utf-8-sig")
-            reader = csv.DictReader(text_content.strip().splitlines())
-            for row_index, row in enumerate(reader):
-                try:
-                    ad: str = row.get("ad", row.get("name", f"Varlik {row_index + 1}"))
-                    tip: str = row.get("tip", row.get("type", "agac"))
-                    enlem: float = float(row.get("enlem", row.get("lat", row.get("latitude", 0))))
-                    boylam: float = float(row.get("boylam", row.get("lng", row.get("longitude", 0))))
-                    iot_str: str = str(row.get("iot_bagli", row.get("iot_connected", "false"))).lower()
-                    iot_bagli: bool = iot_str in ["true", "1", "evet", "yes"]
-                    if enlem == 0 and boylam == 0:
-                        continue
-                    data.append({
-                        "name": ad,
-                        "type": "Point",
-                        "geometry": {"type": "Point", "coordinates": [boylam, enlem]},
-                        "style": {"color": "#FF5722", "icon": tip},
-                        "properties": {"iot_connected": iot_bagli, "import_source": file.filename},
-                    })
-                except Exception:
-                    continue
-        else:
+        updated = update_work_order(work_orders, work_order_id, patch_data)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="work_order_not_found")
+    user_state["work_orders"] = work_orders
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "ok", "item": updated}
+
+
+@app.post("/api/v1/iot/telemetry")
+async def ingest_telemetry(
+    request: TelemetryIngestRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+    telemetry_log: List[Dict[str, Any]] = list(user_state.get("telemetry_log", []))
+    alerts: List[Dict[str, Any]] = list(user_state.get("alerts", []))
+    normalized = normalize_telemetry(request.dict())
+    if normalized.get("asset_id", "") == "":
+        raise HTTPException(status_code=400, detail="asset_id zorunludur.")
+    target_index = find_asset_index_by_id(map_data, str(normalized["asset_id"]))
+    if target_index < 0:
+        raise HTTPException(status_code=404, detail="asset_not_found")
+    target_asset = ensure_asset_identity(map_data[target_index])
+    props: Dict[str, Any] = dict(target_asset.get("properties", {}))
+    digital_card: Dict[str, Any] = dict(props.get("digital_card", {}))
+    iot_card: Dict[str, Any] = dict(digital_card.get("iot", {}))
+    alarm_card: Dict[str, Any] = dict(digital_card.get("alarm", {}))
+    metrics: Dict[str, Any] = dict(normalized.get("metrics", {}))
+    for key, value in metrics.items():
+        iot_card[key] = value
+    iot_card["last_seen_at"] = str(normalized.get("measured_at"))
+    iot_card["updated_at"] = iso_now_utc()
+    digital_card["iot"] = iot_card
+    props["digital_card"] = digital_card
+    detected_alerts = detect_alerts(iot_card, alarm_card)
+    if len(detected_alerts) > 0:
+        for alert in detected_alerts:
+            alert["asset_id"] = normalized["asset_id"]
+            alert["device_id"] = normalized["device_id"]
+        alerts.extend(detected_alerts)
+        alerts = alerts[-1000:]
+    props["iot_connected"] = True
+    target_asset["properties"] = props
+    map_data[target_index] = ensure_asset_identity(target_asset)
+    telemetry_log.append(normalized)
+    telemetry_log = telemetry_log[-5000:]
+    user_state["map"] = map_data
+    user_state["telemetry_log"] = telemetry_log
+    user_state["alerts"] = alerts
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    await _broadcast_live_event(
+        {
+            "type": "telemetry",
+            "asset_id": normalized["asset_id"],
+            "device_id": normalized["device_id"],
+            "metrics": metrics,
+            "measured_at": normalized["measured_at"],
+            "alerts": detected_alerts,
+        }
+    )
+    return {"status": "ok", "telemetry": normalized, "alerts": detected_alerts}
+
+
+@app.get("/api/v1/iot/alerts")
+def list_alerts(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    alerts: List[Dict[str, Any]] = list(user_state.get("alerts", []))
+    return {"status": "ok", "items": alerts, "count": len(alerts)}
+
+
+@app.websocket("/ws/live")
+async def websocket_live(websocket: WebSocket):
+    await websocket.accept()
+    live_websocket_clients.append(websocket)
+    try:
+        await websocket.send_json({"type": "connected", "at": iso_now_utc()})
+        while True:
             try:
-                import geopandas as gpd
-                gdf = gpd.read_file(temp_path)
-            except Exception as e:
-                raise HTTPException(status_code=400, detail=f"Dosya okunamadi: {e}")
-            if gdf is None or gdf.empty:
-                raise HTTPException(status_code=400, detail="Dosyada gecerli geometri bulunamadi.")
-            if gdf.crs is not None and str(gdf.crs) != "EPSG:4326":
-                gdf = gdf.to_crs("EPSG:4326")
-            for index, row in gdf.iterrows():
-                geom = row.geometry
-                if geom is None or geom.geom_type != "Point":
-                    continue
-                props: Dict[str, Any] = {}
-                for key, value in row.drop(labels=["geometry"]).items():
-                    try:
-                        json.dumps(value)
-                        props[str(key)] = value
-                    except Exception:
-                        props[str(key)] = str(value)
-                feature_name: str = str(props.get("name", props.get("ad", f"Varlik {index + 1}")))
-                feature_tip: str = str(props.get("tip", props.get("type", "agac")))
-                data.append({
-                    "name": feature_name,
-                    "type": "Point",
-                    "geometry": geom.__geo_interface__,
-                    "style": {"color": "#FF5722", "icon": feature_tip},
-                    "properties": {"iot_connected": False, "import_source": file.filename, **props},
-                })
-        if len(data) == 0:
-            raise HTTPException(status_code=400, detail="Dosyada islenebilir Point verisi bulunamadi.")
-        current_db = load_db()
-        current_db.extend(data)
-        save_db(current_db)
-        return {"status": "success", "data": data}
+                incoming = await websocket.receive_json()
+                if isinstance(incoming, dict) and str(incoming.get("type")) == "ping":
+                    await websocket.send_json({"type": "pong", "at": iso_now_utc()})
+            except Exception:
+                await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
     finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        if websocket in live_websocket_clients:
+            live_websocket_clients.remove(websocket)
+
+
+@app.get("/api/v1/analytics/kpi")
+def analytics_kpi(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    kpi = build_kpi(
+        map_items=canonicalize_map_items(list(user_state.get("map", []))),
+        work_orders=list(user_state.get("work_orders", [])),
+        telemetry_log=list(user_state.get("telemetry_log", [])),
+        alerts=list(user_state.get("alerts", [])),
+    )
+    return {"status": "ok", "kpi": kpi, "at": iso_now_utc()}
+
+
+@app.post("/api/v1/integrations/erp/sync")
+def erp_sync(
+    request: ErpSyncRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    job_result = run_connector_sync(
+        connector=request.connector,
+        payload={
+            "assets": canonicalize_map_items(list(user_state.get("map", []))),
+            "work_orders": list(user_state.get("work_orders", [])),
+            "telemetry": list(user_state.get("telemetry_log", [])),
+        },
+    )
+    jobs: List[Dict[str, Any]] = list(user_state.get("integration_jobs", []))
+    jobs.append(job_result)
+    user_state["integration_jobs"] = jobs[-200:]
+    _touch_user_state(user_state)
+    save_user_state(str(current_user["id"]), user_state)
+    return {"status": "ok", "job": job_result}
+
+
+@app.get("/api/v1/integrations/erp/jobs")
+def erp_jobs(current_user: Dict[str, Any] = Depends(get_current_user)):
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    jobs: List[Dict[str, Any]] = list(user_state.get("integration_jobs", []))
+    return {"status": "ok", "items": jobs, "count": len(jobs)}
+
 
 @app.post("/api/v1/gis/fetch-satellite-image")
-def fetch_satellite_image(request: AnalysisRequest):
+def fetch_satellite_image(
+    request: AnalysisRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     try:
         if len(request.parcel_geometries) == 0:
             raise HTTPException(status_code=400, detail="Parsel geometrisi bos olamaz.")
@@ -913,84 +1914,105 @@ def fetch_satellite_image(request: AnalysisRequest):
 
 # --- 🔥 DERİN ÖĞRENME ANALİZİ 🔥 ---
 @app.post("/api/v1/gis/analyze-satellite")
-def analyze_satellite(request: AnalysisRequest):
+def analyze_satellite(
+    request: AnalysisRequest,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
     try:
-        if tree_model is None:
-            raise HTTPException(status_code=503, detail="DeepForest kullanima hazir degil.")
-        print("--- AI TARAMASI BAŞLIYOR ---")
+        if len(request.parcel_geometries) == 0:
+            raise HTTPException(status_code=400, detail="Parsel geometrisi bos olamaz.")
+        print("--- BASIT GORUNTU ANALIZI BASLIYOR ---")
         polygons = [shape(geo) for geo in request.parcel_geometries]
         merged_area = unary_union(polygons)
         image_rgba_np, minx, miny, maxx, maxy, width, height, _, _ = fetch_masked_satellite_image(parcel_geometries=request.parcel_geometries)
-        image_pil = Image.fromarray(image_rgba_np, mode="RGBA").convert("RGB")
-        img_np = np.array(image_pil)
-        
-        detected_assets = []
+        detect_image_rgba: np.ndarray = image_rgba_np
+        detect_width: int = width
+        detect_height: int = height
+        if max(width, height) < 1400:
+            upscale_ratio: float = 2.0
+            detect_width = int(round(width * upscale_ratio))
+            detect_height = int(round(height * upscale_ratio))
+            detect_image_rgba = cv2.resize(
+                image_rgba_np,
+                (detect_width, detect_height),
+                interpolation=cv2.INTER_CUBIC,
+            )
+        detected_assets: List[Dict[str, Any]] = []
 
-        # --- AĞAÇ ANALİZİ (DEEPFOREST) ---
-        print(">> Ağaçlar Aranıyor...")
-        temp_path = "temp_sat.jpg"
-        image_pil.save(temp_path)
-        
-        boxes = tree_model.predict_image(path=temp_path, return_plot=False)
-        
-        if boxes is not None:
-            for index, row in boxes.iterrows():
-                if row["score"] > 0.25: # Güven eşiği
-                    cX = (row["xmin"] + row["xmax"]) / 2
-                    cY = (row["ymin"] + row["ymax"]) / 2
-                    x_meters = minx + (cX / width) * (maxx - minx)
-                    y_meters = maxy - (cY / height) * (maxy - miny)
-                    latlon_coordinates: List[float] = meters_to_latlon(x_meters=x_meters, y_meters=y_meters)
-                    lat = latlon_coordinates[0]
-                    lng = latlon_coordinates[1]
-                    p = Point(lng, lat)
-                    if merged_area.contains(p):
-                        detected_assets.append({
-                            "name": f"Ağaç (%{int(row['score']*100)})",
-                            "type": "Point",
-                            "geometry": {"type": "Point", "coordinates": [lng, lat]},
-                            "style": {"color": "#4CAF50", "icon": "detected_tree"},
-                            "properties": {"iot_connected": False, "status": "unverified", "ai_guess": "agac"}
-                        })
+        tree_candidates: List[Tuple[float, float]] = []
+        if tree_model is not None:
+            try:
+                print(">> Agaclar DeepForest ile aranıyor...")
+                temp_path: str = "temp_sat.jpg"
+                Image.fromarray(image_rgba_np, mode="RGBA").convert("RGB").save(temp_path)
+                boxes = tree_model.predict_image(path=temp_path, return_plot=False)
+                if boxes is not None:
+                    for _, row in boxes.iterrows():
+                        if row["score"] <= 0.25:
+                            continue
+                        c_x: float = float((row["xmin"] + row["xmax"]) / 2)
+                        c_y: float = float((row["ymin"] + row["ymax"]) / 2)
+                        tree_candidates.append((c_x, c_y))
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+            except Exception as model_error:
+                print(f"DeepForest devre disi, basit algoritmaya geciliyor: {model_error}")
+        if len(tree_candidates) == 0:
+            print(">> Agaclar basit renk segmentasyonu ile aranıyor...")
+            tree_candidates = detect_simple_tree_candidates(image_rgba_np=detect_image_rgba)
 
-        # --- YAPI ANALİZİ (GEOMETRİK) ---
-        print(">> Yapılar Aranıyor...")
-        img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-        gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-        blurred = cv2.bilateralFilter(gray, 11, 17, 17)
-        edged = cv2.Canny(blurred, 30, 200)
-        contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        for cnt in contours:
-            area = cv2.contourArea(cnt)
-            if 300 < area < 8000:
-                peri = cv2.arcLength(cnt, True)
-                approx = cv2.approxPolyDP(cnt, 0.04 * peri, True)
-                if 4 <= len(approx) <= 6:
-                    M = cv2.moments(cnt)
-                    if M["m00"] != 0:
-                        cX = int(M["m10"] / M["m00"])
-                        cY = int(M["m01"] / M["m00"])
-                        x_meters = minx + (cX / width) * (maxx - minx)
-                        y_meters = maxy - (cY / height) * (maxy - miny)
-                        latlon_coordinates = meters_to_latlon(x_meters=x_meters, y_meters=y_meters)
-                        lat = latlon_coordinates[0]
-                        lng = latlon_coordinates[1]
-                        p = Point(lng, lat)
-                        if merged_area.contains(p):
-                            detected_assets.append({
-                                "name": "Yapı",
-                                "type": "Point",
-                                "geometry": {"type": "Point", "coordinates": [lng, lat]},
-                                "style": {"color": "#8D6E63", "icon": "detected_building"},
-                                "properties": {"iot_connected": False, "status": "unverified", "ai_guess": "yapi"}
-                            })
+        print(">> Yapilar basit sekil analizi ile aranıyor...")
+        building_candidates: List[List[Tuple[float, float]]] = detect_simple_structure_candidates(image_rgba_np=detect_image_rgba)
 
-        db = load_db()
-        db.extend(detected_assets)
-        save_db(db)
-        
-        if os.path.exists(temp_path): os.remove(temp_path)
+        max_tree_count: int = 800
+        if len(tree_candidates) > max_tree_count:
+            tree_candidates = tree_candidates[:max_tree_count]
+
+        for c_x, c_y in tree_candidates:
+            x_meters: float = minx + (c_x / detect_width) * (maxx - minx)
+            y_meters: float = maxy - (c_y / detect_height) * (maxy - miny)
+            latlon_coordinates: List[float] = meters_to_latlon(x_meters=x_meters, y_meters=y_meters)
+            lat: float = latlon_coordinates[0]
+            lng: float = latlon_coordinates[1]
+            if merged_area.contains(Point(lng, lat)):
+                detected_assets.append({
+                    "name": "Ağaç (Ön Analiz)",
+                    "type": "Point",
+                    "geometry": {"type": "Point", "coordinates": [lng, lat]},
+                    "style": {"color": "#4CAF50", "icon": "detected_tree"},
+                    "properties": {"iot_connected": False, "status": "unverified", "ai_guess": "agac", "detector": "simple_cv", "asset_type": "agac_nokta"},
+                })
+
+        for polygon_pixels in building_candidates:
+            latlon_ring: List[List[float]] = []
+            for c_x, c_y in polygon_pixels:
+                x_meters = minx + (c_x / detect_width) * (maxx - minx)
+                y_meters = maxy - (c_y / detect_height) * (maxy - miny)
+                latlon_coordinates = meters_to_latlon(x_meters=x_meters, y_meters=y_meters)
+                latlon_ring.append([latlon_coordinates[1], latlon_coordinates[0]])
+            if len(latlon_ring) < 3:
+                continue
+            first_point: List[float] = latlon_ring[0]
+            last_point: List[float] = latlon_ring[-1]
+            if first_point[0] != last_point[0] or first_point[1] != last_point[1]:
+                latlon_ring.append([first_point[0], first_point[1]])
+            polygon_shape = shape({"type": "Polygon", "coordinates": [latlon_ring]})
+            if merged_area.intersects(polygon_shape):
+                detected_assets.append({
+                    "name": "Yapı (Ön Analiz)",
+                    "type": "Polygon",
+                    "geometry": {"type": "Polygon", "coordinates": [latlon_ring]},
+                    "style": {"color": "#8D6E63", "icon": "detected_building_shape"},
+                    "properties": {"iot_connected": False, "status": "unverified", "ai_guess": "yapi", "detector": "simple_cv", "asset_type": "yapi_polygon"},
+                })
+
+        user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+        map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
+        map_data.extend(canonicalize_map_items(detected_assets))
+        user_state["map"] = map_data
+        _touch_user_state(user_state)
+        save_user_state(str(current_user["id"]), user_state)
+
         print(f"Toplam {len(detected_assets)} varlık bulundu.")
         return {"status": "success", "assets": detected_assets}
         
@@ -998,58 +2020,45 @@ def analyze_satellite(request: AnalysisRequest):
         print(f"HATA: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- TEK PORT COZUMU: Flutter web dosyalarini 8000 portundan sun ---
-# Bu sayede IDX ortaminda CORS ve yetki sorunlari ortadan kalkar.
-# Kullanim: IDX'te "flutter build web" calistir, sonra sadece 8000 portunu ac.
-FLUTTER_INDEX_HTML = os.path.join(FLUTTER_WEB_DIR, "index.html")
-_flutter_build_hazir = os.path.isfile(FLUTTER_INDEX_HTML)
-
-if _flutter_build_hazir:
-    print(f"✅ Flutter web build bulundu: {FLUTTER_WEB_DIR}")
-    print(f"   Frontend ve Backend tek portta sunuluyor (8000).")
-
-    # Alt klasorler varsa StaticFiles ile mount et (yoksa catch-all halleder)
-    _flutter_assets_dir = os.path.join(FLUTTER_WEB_DIR, "assets")
-    if os.path.isdir(_flutter_assets_dir):
-        app.mount("/assets", StaticFiles(directory=_flutter_assets_dir), name="flutter_assets")
-
-    _flutter_canvaskit_dir = os.path.join(FLUTTER_WEB_DIR, "canvaskit")
-    if os.path.isdir(_flutter_canvaskit_dir):
-        app.mount("/canvaskit", StaticFiles(directory=_flutter_canvaskit_dir), name="flutter_canvaskit")
-
-    _flutter_icons_dir = os.path.join(FLUTTER_WEB_DIR, "icons")
-    if os.path.isdir(_flutter_icons_dir):
-        app.mount("/icons", StaticFiles(directory=_flutter_icons_dir), name="flutter_icons")
-
-    # Root path: index.html
-    @app.get("/")
-    async def serve_flutter_root():
-        return FileResponse(FLUTTER_INDEX_HTML, media_type="text/html")
-
-    # SPA catch-all: API olmayan tum GET isteklerinde dosya veya index.html don
-    @app.get("/{full_path:path}")
-    async def serve_flutter_spa(request: Request, full_path: str):
-        # API istekleri buraya dusmemeli (zaten yukarida tanimli)
-        if full_path.startswith("api/"):
-            raise HTTPException(status_code=404, detail="API endpoint bulunamadi.")
-        # Dosya varsa dogrudan sun
-        file_path = os.path.join(FLUTTER_WEB_DIR, full_path)
-        if os.path.isfile(file_path):
-            return FileResponse(file_path)
-        # Yoksa SPA icin index.html don
-        return FileResponse(FLUTTER_INDEX_HTML, media_type="text/html")
-else:
-    if os.path.isdir(FLUTTER_WEB_DIR):
-        print(f"⚠️  Flutter web dizini var ama index.html bulunamadi: {FLUTTER_WEB_DIR}")
-        print(f"   'cd smartfarm_xr && flutter build web' komutunu calistirdiginizdan emin olun.")
-    else:
-        print(f"ℹ️  Flutter web build bulunamadi: {FLUTTER_WEB_DIR}")
-        print(f"   Sadece API modu aktif. Frontend icin: cd smartfarm_xr && flutter build web")
-
-    @app.get("/")
-    async def api_root():
-        return {
-            "message": "SmartFarm XR API",
-            "docs": "/docs",
-            "note": "Flutter web build bulunamadi. 'cd smartfarm_xr && flutter build web' calistirin.",
-        }
+@app.get("/api/v1/admin/farms")
+def admin_farms(_: Dict[str, Any] = Depends(require_admin)):
+    users_db: Dict[str, Any] = load_users_db()
+    users_by_id: Dict[str, Dict[str, Any]] = {
+        str(user.get("id")): user for user in users_db.get("users", [])
+    }
+    state_db: Dict[str, Any] = load_db()
+    users_bucket: Dict[str, Any] = state_db.get("users", {})
+    farms: List[Dict[str, Any]] = []
+    for user_id, state in users_bucket.items():
+        if not isinstance(state, dict):
+            continue
+        map_data: List[Any] = state.get("map", [])
+        parcel_count: int = 0
+        asset_count: int = 0
+        for item in map_data:
+            if not isinstance(item, dict):
+                continue
+            geometry_obj: Any = item.get("geometry", {})
+            geometry_type: str = str(geometry_obj.get("type", ""))
+            is_asset_polygon: bool = str(item.get("properties", {}).get("asset_type", "")) == "yapi_polygon"
+            if geometry_type in ["Polygon", "MultiPolygon"]:
+                if is_asset_polygon:
+                    asset_count += 1
+                else:
+                    parcel_count += 1
+            elif geometry_type == "Point":
+                asset_count += 1
+        user_obj: Dict[str, Any] = users_by_id.get(str(user_id), {})
+        farms.append(
+            {
+                "user_id": user_id,
+                "email": user_obj.get("email", "unknown"),
+                "username": user_obj.get("username", "unknown"),
+                "role": user_obj.get("role", "user"),
+                "parcel_count": parcel_count,
+                "asset_count": asset_count,
+                "version": state.get("version", 0),
+                "updated_at": state.get("updated_at"),
+            }
+        )
+    return {"farms": farms, "count": len(farms)}

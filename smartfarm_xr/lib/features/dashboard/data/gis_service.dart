@@ -1,8 +1,9 @@
 import 'package:dio/dio.dart';
-import 'package:dio/browser.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:convert';
+import '../../../core/services/auth_service.dart';
+import '../../../core/utils/local_storage_service.dart';
 
 class UyduGorselSonucu {
   final Uint8List imageBytes;
@@ -33,117 +34,206 @@ class _UyduOnbellekKaydi {
 }
 
 class GisService {
-  /// API base URL'ini belirler.
-  /// Tek port cozumu: Frontend ve backend ayni origin'den sunuluyorsa
-  /// (IDX'te 8000 portu), relative URL '/api/v1' yeterlidir.
-  /// Farkli portlardaysa (localhost gelistirme) cross-origin URL olusturulur.
-  static String _baseUrlOlustur() {
-    if (!kIsWeb) {
-      return 'http://127.0.0.1:8000/api/v1';
-    }
-    Uri mevcutAdres = Uri.base;
-    String host = mevcutAdres.host;
-    // IDX tek port cozumu: 8000 portundan sunuluyorsa relative URL kullan
-    if (host.contains('cloudworkstations.dev') && host.startsWith('8000-')) {
-      return '/api/v1';
-    }
-    // Localhost: ayni porttaysa (tek port) relative, farkli portsa cross-origin
-    if (host == 'localhost' || host == '127.0.0.1') {
-      String currentPort = mevcutAdres.hasPort ? mevcutAdres.port.toString() : '';
-      if (currentPort == '8000') {
-        return '/api/v1';
-      }
-      return '${mevcutAdres.scheme}://$host:8000/api/v1';
-    }
-    // IDX 8080 portu (eski yontem, fallback)
-    if (host.contains('cloudworkstations.dev')) {
-      host = host.replaceFirst(RegExp(r'^\d+-'), '8000-');
-      return '${mevcutAdres.scheme}://$host/api/v1';
-    }
-    String portKismi = mevcutAdres.hasPort ? ':${mevcutAdres.port}' : '';
-    return '${mevcutAdres.scheme}://${mevcutAdres.host}$portKismi/api/v1';
-  }
-
   final Dio _dio = Dio(BaseOptions(
-    baseUrl: _baseUrlOlustur(),
+    baseUrl: 'http://127.0.0.1:8000/api/v1',
     connectTimeout: const Duration(seconds: 10),
   ));
-  final Map<String, _UyduOnbellekKaydi> _uyduOnbellek = <String, _UyduOnbellekKaydi>{};
+  final LocalStorageService _storage = const LocalStorageService();
+  final Map<String, _UyduOnbellekKaydi> _uyduOnbellek =
+      <String, _UyduOnbellekKaydi>{};
   static const Duration _uyduOnbellekSuresi = Duration(hours: 24);
-  String? _sonHata;
-
-  String get aktifBaseUrl => _dio.options.baseUrl;
-  String? get sonHata => _sonHata;
+  static const String _islemKuyruguAnahtari = 'sync_pending_ops';
+  static const String _sunucuVersiyonAnahtari = 'sync_server_version';
 
   GisService() {
-    if (kIsWeb) {
-      // Cross-origin isteklerde credential gonderimi (fallback icin)
-      BrowserHttpClientAdapter webAdapter = _dio.httpClientAdapter as BrowserHttpClientAdapter;
-      webAdapter.withCredentials = true;
-    }
+    _dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (RequestOptions options, RequestInterceptorHandler handler) {
+          String? token = AuthService.instance.accessToken;
+          if ((token ?? '').isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
+        onError: (DioException error, ErrorInterceptorHandler handler) async {
+          int? statusCode = error.response?.statusCode;
+          RequestOptions requestOptions = error.requestOptions;
+          bool alreadyRetried = requestOptions.extra['auth_retry'] == true;
+          bool isAuthEndpoint = requestOptions.path.startsWith('/auth/');
+          bool isMultipartRequest = requestOptions.data is FormData;
+          if (statusCode == 401 &&
+              !alreadyRetried &&
+              !isAuthEndpoint &&
+              !isMultipartRequest) {
+            bool refreshed = await AuthService.instance.refreshSession();
+            if (refreshed) {
+              String? newToken = AuthService.instance.accessToken;
+              RequestOptions retriedOptions = requestOptions.copyWith(
+                headers: <String, dynamic>{
+                  ...requestOptions.headers,
+                  if ((newToken ?? '').isNotEmpty)
+                    'Authorization': 'Bearer $newToken',
+                },
+                extra: <String, dynamic>{
+                  ...requestOptions.extra,
+                  'auth_retry': true,
+                },
+              );
+              try {
+                Response<dynamic> retriedResponse =
+                    await _dio.fetch<dynamic>(retriedOptions);
+                handler.resolve(retriedResponse);
+                return;
+              } catch (_) {}
+            }
+          }
+          handler.next(error);
+        },
+      ),
+    );
   }
 
   // HATA DÜZELTİLDİ: 'Future<void>' yerine 'Future<List<dynamic>?>' yapıldı.
   Future<List<dynamic>?> haritaYukle() async {
-    _sonHata = null;
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.custom,
         allowedExtensions: ['geojson', 'kml', 'json', 'shp'],
         allowMultiple: true,
       );
-      if (result == null) {
-        _sonHata = "Dosya seçimi iptal edildi.";
-        return null;
-      }
-      List<dynamic> tumParseller = <dynamic>[];
-      for (PlatformFile secilenDosya in result.files) {
-        dynamic fileData;
-        if (kIsWeb) {
-          fileData = secilenDosya.bytes;
-        } else {
-          fileData = secilenDosya.path;
+      if (result != null) {
+        List<dynamic> tumParseller = <dynamic>[];
+        for (PlatformFile secilenDosya in result.files) {
+          dynamic fileData;
+          if (kIsWeb) {
+            fileData = secilenDosya.bytes;
+          } else {
+            fileData = secilenDosya.path;
+          }
+          if (fileData == null) {
+            continue;
+          }
+          FormData formData = FormData.fromMap({
+            "file": kIsWeb
+                ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
+                : await MultipartFile.fromFile(fileData,
+                    filename: secilenDosya.name),
+          });
+          debugPrint(
+              "--- LOG: ${secilenDosya.name} sunucuya gönderiliyor... ---");
+          Response<dynamic> response =
+              await _dio.post('/gis/upload-map', data: formData);
+          if (response.statusCode == 200 &&
+              response.data != null &&
+              response.data['data'] is List) {
+            List<dynamic> dosyaParselleri =
+                List<dynamic>.from(response.data['data'] as List<dynamic>);
+            tumParseller.addAll(dosyaParselleri);
+          }
         }
-        if (fileData == null) {
-          continue;
+        if (tumParseller.isNotEmpty) {
+          debugPrint(
+              "--- LOG: Toplam ${tumParseller.length} parsel yüklendi ---");
+          return tumParseller;
         }
-        FormData formData = FormData.fromMap({
-          "file": kIsWeb
-              ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
-              : await MultipartFile.fromFile(fileData, filename: secilenDosya.name),
-        });
-        debugPrint("--- LOG: ${secilenDosya.name} sunucuya gönderiliyor... ---");
-        Response<dynamic> response = await _dio.post('/gis/upload-map', data: formData);
-        if (response.statusCode == 200 && response.data != null && response.data['data'] is List) {
-          List<dynamic> dosyaParselleri = List<dynamic>.from(response.data['data'] as List<dynamic>);
-          tumParseller.addAll(dosyaParselleri);
-          continue;
-        }
-        _sonHata = "Yükleme başarısız: durum=${response.statusCode}";
       }
-      if (tumParseller.isNotEmpty) {
-        debugPrint("--- LOG: Toplam ${tumParseller.length} parsel yüklendi ---");
-        return tumParseller;
-      }
-      _sonHata ??= "Yüklenen dosyalardan parsel okunamadı.";
     } catch (e) {
-      if (e is DioException) {
-        String? ayrinti = e.message;
-        if (e.response?.data != null) {
-          ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
-        }
-        _sonHata = "Sunucu erişim hatası: $ayrinti";
-      } else {
-        _sonHata = "Beklenmeyen hata: $e";
-      }
       debugPrint("HATA: $e");
     }
     return null;
   }
 
-  String _uyduOnbellekAnahtariOlustur(List<Map<String, dynamic>> parselGeometrileri) {
+  Future<List<dynamic>?> haritayiGetir() async {
+    try {
+      Response<dynamic> response = await _dio.get('/gis/snapshot');
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic mapRaw = response.data['map'];
+        dynamic versionRaw = response.data['version'];
+        if (versionRaw is num) {
+          await _storage.saveString(
+              _sunucuVersiyonAnahtari, versionRaw.toInt().toString());
+        }
+        if (mapRaw is List) {
+          return List<dynamic>.from(mapRaw);
+        }
+      }
+    } catch (e) {
+      debugPrint("HARITA GETIR HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<void> islemKuyrugunaEkle(
+      String type, Map<String, dynamic> payload) async {
+    List<Map<String, dynamic>> kuyruk =
+        await _storage.readCollection(_islemKuyruguAnahtari);
+    String simdi = DateTime.now().toUtc().toIso8601String();
+    kuyruk.add(
+      <String, dynamic>{
+        'client_op_id': '${DateTime.now().microsecondsSinceEpoch}_$type',
+        'type': type,
+        'created_at': simdi,
+        'timezone_offset_min': DateTime.now().timeZoneOffset.inMinutes,
+        'timezone_name': DateTime.now().timeZoneName,
+        'payload': payload,
+      },
+    );
+    await _storage.writeCollection(_islemKuyruguAnahtari, kuyruk);
+  }
+
+  Future<List<dynamic>?> bekleyenIslemleriSenkronizeEt() async {
+    List<Map<String, dynamic>> kuyruk =
+        await _storage.readCollection(_islemKuyruguAnahtari);
+    if (kuyruk.isEmpty) {
+      return null;
+    }
+    String? versionText = await _storage.readString(_sunucuVersiyonAnahtari);
+    int? baseVersion = int.tryParse(versionText ?? '');
+    for (int deneme = 0; deneme < 3; deneme++) {
+      try {
+        Response<dynamic> response = await _dio.post(
+          '/gis/sync',
+          data: <String, dynamic>{
+            if (baseVersion != null) 'base_version': baseVersion,
+            'sync_requested_at': DateTime.now().toUtc().toIso8601String(),
+            'ops': kuyruk,
+          },
+          options: Options(
+            receiveTimeout: const Duration(seconds: 20),
+            sendTimeout: const Duration(seconds: 20),
+          ),
+        );
+        if (response.statusCode == 200 && response.data is Map) {
+          String status = (response.data['status'] ?? 'ok').toString();
+          dynamic versionRaw = response.data['version'];
+          if (versionRaw is num) {
+            await _storage.saveString(
+                _sunucuVersiyonAnahtari, versionRaw.toInt().toString());
+          }
+          dynamic mapRaw = response.data['map'];
+          if (status == 'ok') {
+            await _storage.writeCollection(
+                _islemKuyruguAnahtari, <Map<String, dynamic>>[]);
+          }
+          if (mapRaw is List) {
+            return List<dynamic>.from(mapRaw);
+          }
+          return null;
+        }
+      } catch (e) {
+        debugPrint("SENKRON HATASI (deneme ${deneme + 1}): $e");
+        await Future<void>.delayed(
+            Duration(milliseconds: 400 * (deneme + 1) * (deneme + 1)));
+      }
+    }
+    return null;
+  }
+
+  String _uyduOnbellekAnahtariOlustur(
+      List<Map<String, dynamic>> parselGeometrileri) {
     List<String> geometriImzalari = parselGeometrileri
-        .map((Map<String, dynamic> geometri) => jsonEncode(_siraliYapiOlustur(geometri)))
+        .map((Map<String, dynamic> geometri) =>
+            jsonEncode(_siraliYapiOlustur(geometri)))
         .toList();
     geometriImzalari.sort();
     return geometriImzalari.join('|');
@@ -151,7 +241,8 @@ class GisService {
 
   dynamic _siraliYapiOlustur(dynamic deger) {
     if (deger is Map) {
-      List<String> anahtarlar = deger.keys.map((dynamic key) => key.toString()).toList()..sort();
+      List<String> anahtarlar =
+          deger.keys.map((dynamic key) => key.toString()).toList()..sort();
       Map<String, dynamic> sonuc = <String, dynamic>{};
       for (String anahtar in anahtarlar) {
         sonuc[anahtar] = _siraliYapiOlustur(deger[anahtar]);
@@ -164,13 +255,16 @@ class GisService {
     return deger;
   }
 
-  Future<UyduGorselSonucu?> uyduGorseliGetir({required List<Map<String, dynamic>> parselGeometrileri, bool zorlaYenile = false}) async {
+  Future<UyduGorselSonucu?> uyduGorseliGetir(
+      {required List<Map<String, dynamic>> parselGeometrileri,
+      bool zorlaYenile = false}) async {
     try {
-      String onbellekAnahtari = _uyduOnbellekAnahtariOlustur(parselGeometrileri);
+      String onbellekAnahtari =
+          _uyduOnbellekAnahtariOlustur(parselGeometrileri);
       _UyduOnbellekKaydi? onbellekKaydi = _uyduOnbellek[onbellekAnahtari];
       bool onbellekGecerli = onbellekKaydi != null &&
-          DateTime.now().difference(onbellekKaydi.zamanDamgasi) < _uyduOnbellekSuresi;
-
+          DateTime.now().difference(onbellekKaydi.zamanDamgasi) <
+              _uyduOnbellekSuresi;
       if (!zorlaYenile && onbellekGecerli) {
         debugPrint("UYDU ONBELLEK: onbellekten donuyor.");
         UyduGorselSonucu onbellekSonucu = onbellekKaydi.sonuc;
@@ -183,11 +277,9 @@ class GisService {
           freshnessStatus: onbellekSonucu.freshnessStatus,
         );
       }
-
       Map<String, dynamic> requestBody = <String, dynamic>{
         'parcel_geometries': parselGeometrileri,
       };
-
       Response<dynamic> response = await _dio.post(
         '/gis/fetch-satellite-image',
         data: requestBody,
@@ -196,38 +288,37 @@ class GisService {
           sendTimeout: const Duration(seconds: 15),
         ),
       );
-
       if (response.statusCode == 200 && response.data != null) {
         String? imageBase64 = response.data['image_base64'] as String?;
         if (imageBase64 == null || imageBase64.isEmpty) {
           return null;
         }
-
         dynamic overlayBoundsRaw = response.data['overlay_bounds'];
-        Map<String, dynamic> overlayBoundsMap;
-        if (overlayBoundsRaw is String) {
-          overlayBoundsMap = jsonDecode(overlayBoundsRaw) as Map<String, dynamic>;
-        } else if (overlayBoundsRaw is Map) {
-          overlayBoundsMap = Map<String, dynamic>.from(overlayBoundsRaw);
-        } else {
+        if (overlayBoundsRaw is! Map) {
           return null;
         }
-
+        Map<String, dynamic> overlayBoundsMap =
+            Map<String, dynamic>.from(overlayBoundsRaw);
         Map<String, double> overlayBounds = <String, double>{
           "south": (overlayBoundsMap['south'] as num).toDouble(),
           "west": (overlayBoundsMap['west'] as num).toDouble(),
           "north": (overlayBoundsMap['north'] as num).toDouble(),
           "east": (overlayBoundsMap['east'] as num).toDouble(),
         };
-
-        String provider = (response.data['imagery_provider'] ?? 'esri').toString();
-        String freshnessStatus = (response.data['imagery_provider_freshness_status'] ?? 'unknown').toString();
+        String provider =
+            (response.data['imagery_provider'] ?? 'esri').toString();
+        String freshnessStatus =
+            (response.data['imagery_provider_freshness_status'] ?? 'unknown')
+                .toString();
         DateTime? providerTarihi;
-        dynamic providerTarihiRaw = response.data['imagery_provider_freshness_ts'];
+        dynamic providerTarihiRaw =
+            response.data['imagery_provider_freshness_ts'];
         if (providerTarihiRaw is num) {
-          providerTarihi = DateTime.fromMillisecondsSinceEpoch((providerTarihiRaw.toDouble() * 1000).round(), isUtc: true).toLocal();
+          providerTarihi = DateTime.fromMillisecondsSinceEpoch(
+                  (providerTarihiRaw.toDouble() * 1000).round(),
+                  isUtc: true)
+              .toLocal();
         }
-
         Uint8List imageBytes = base64Decode(imageBase64);
         UyduGorselSonucu sonuc = UyduGorselSonucu(
           imageBytes: imageBytes,
@@ -237,7 +328,6 @@ class GisService {
           providerTarihi: providerTarihi,
           freshnessStatus: freshnessStatus,
         );
-
         _uyduOnbellek[onbellekAnahtari] = _UyduOnbellekKaydi(
           sonuc: sonuc,
           zamanDamgasi: DateTime.now(),
@@ -250,111 +340,207 @@ class GisService {
     return null;
   }
 
-  // --- VARLIK CRUD ---
-
-  Future<bool> varlikEkle(Map<String, dynamic> varlik) async {
+  Future<List<dynamic>?> onAnalizYap(
+      {required List<Map<String, dynamic>> parselGeometrileri}) async {
     try {
-      Response<dynamic> response = await _dio.post('/gis/add-asset', data: varlik);
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint("VARLIK EKLEME HATASI: $e");
-      return false;
-    }
-  }
-
-  Future<bool> varlikGuncelle(int index, Map<String, dynamic> varlik) async {
-    try {
-      Response<dynamic> response = await _dio.put('/gis/update-asset/$index', data: varlik);
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint("VARLIK GUNCELLEME HATASI: $e");
-      return false;
-    }
-  }
-
-  Future<bool> varlikSil(int index) async {
-    try {
-      Response<dynamic> response = await _dio.delete('/gis/delete-asset/$index');
-      return response.statusCode == 200;
-    } catch (e) {
-      debugPrint("VARLIK SILME HATASI: $e");
-      return false;
-    }
-  }
-
-  // --- TOPLU VARLIK ICE AKTARMA (Faz 3) ---
-
-  Future<List<dynamic>?> varlikDosyasiYukle() async {
-    _sonHata = null;
-    try {
-      FilePickerResult? result = await FilePicker.platform.pickFiles(
-        type: FileType.custom,
-        allowedExtensions: ['geojson', 'json', 'csv'],
-        allowMultiple: false,
+      Response<dynamic> response = await _dio.post(
+        '/gis/analyze-satellite',
+        data: <String, dynamic>{
+          'parcel_geometries': parselGeometrileri,
+        },
+        options: Options(
+          receiveTimeout: const Duration(seconds: 90),
+          sendTimeout: const Duration(seconds: 20),
+        ),
       );
-      if (result == null || result.files.isEmpty) {
-        _sonHata = "Dosya seçimi iptal edildi.";
-        return null;
-      }
-      PlatformFile secilenDosya = result.files.first;
-      dynamic fileData;
-      if (kIsWeb) {
-        fileData = secilenDosya.bytes;
-      } else {
-        fileData = secilenDosya.path;
-      }
-      if (fileData == null) {
-        _sonHata = "Dosya verisi okunamadı.";
-        return null;
-      }
-      FormData formData = FormData.fromMap({
-        "file": kIsWeb
-            ? MultipartFile.fromBytes(fileData, filename: secilenDosya.name)
-            : await MultipartFile.fromFile(fileData, filename: secilenDosya.name),
-      });
-      debugPrint("--- LOG: Varlık dosyası yükleniyor: ${secilenDosya.name} ---");
-      Response<dynamic> response = await _dio.post('/gis/upload-assets', data: formData);
-      if (response.statusCode == 200 && response.data != null && response.data['data'] is List) {
-        List<dynamic> varliklar = List<dynamic>.from(response.data['data'] as List<dynamic>);
-        debugPrint("--- LOG: ${varliklar.length} varlık yüklendi ---");
-        return varliklar;
-      }
-      _sonHata = "Varlık yükleme başarısız: durum=${response.statusCode}";
-    } catch (e) {
-      if (e is DioException) {
-        String? ayrinti = e.message;
-        if (e.response?.data != null) {
-          ayrinti = "${e.response?.statusCode} - ${e.response?.data}";
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic assetsRaw = response.data['assets'];
+        if (assetsRaw is List) {
+          return List<dynamic>.from(assetsRaw);
         }
-        _sonHata = "Sunucu erişim hatası: $ayrinti";
-      } else {
-        _sonHata = "Beklenmeyen hata: $e";
       }
-      debugPrint("VARLIK DOSYA YUKLEME HATASI: $e");
+    } catch (e) {
+      debugPrint("ON ANALIZ HATASI: $e");
     }
     return null;
   }
 
-  // --- AI ANALIZ (Faz 4) ---
-
-  Future<List<dynamic>?> aiAnaliz({required List<Map<String, dynamic>> parselGeometrileri}) async {
+  Future<List<dynamic>?> sahaVerisiniIceriAktar({
+    required List<Map<String, dynamic>> features,
+    required List<Map<String, dynamic>> gpsPoints,
+    Map<String, dynamic>? tkgmContext,
+  }) async {
     try {
-      Map<String, dynamic> requestBody = <String, dynamic>{
-        'parcel_geometries': parselGeometrileri,
-      };
       Response<dynamic> response = await _dio.post(
-        '/gis/analyze-satellite',
-        data: requestBody,
-        options: Options(
-          receiveTimeout: const Duration(seconds: 120),
-          sendTimeout: const Duration(seconds: 15),
-        ),
+        '/field/ingest',
+        data: <String, dynamic>{
+          'features': features,
+          'gps_points': gpsPoints,
+          'tkgm_context': tkgmContext ?? <String, dynamic>{},
+        },
       );
-      if (response.statusCode == 200 && response.data != null && response.data['assets'] is List) {
-        return List<dynamic>.from(response.data['assets'] as List<dynamic>);
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic mapRaw = response.data['map'];
+        if (mapRaw is List) {
+          return List<dynamic>.from(mapRaw);
+        }
       }
     } catch (e) {
-      debugPrint("AI ANALIZ HATASI: $e");
+      debugPrint("SAHA INGEST HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> isEmriOlustur({
+    required String assetId,
+    required String title,
+    String description = '',
+    String assignee = '',
+    String priority = 'normal',
+    String? dueAt,
+  }) async {
+    try {
+      Response<dynamic> response = await _dio.post(
+        '/work-orders',
+        data: <String, dynamic>{
+          'asset_id': assetId,
+          'title': title,
+          'description': description,
+          'assignee': assignee,
+          'priority': priority,
+          'due_at': dueAt,
+        },
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic item = response.data['item'];
+        if (item is Map) {
+          return item.cast<String, dynamic>();
+        }
+      }
+    } catch (e) {
+      debugPrint("IS EMRI OLUSTURMA HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> isEmirleriniGetir() async {
+    try {
+      Response<dynamic> response = await _dio.get('/work-orders');
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic itemsRaw = response.data['items'];
+        if (itemsRaw is List) {
+          return itemsRaw
+              .whereType<Map>()
+              .map((Map e) => e.cast<String, dynamic>())
+              .toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("IS EMIRLERI GETIRME HATASI: $e");
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>?> isEmriGuncelle({
+    required String workOrderId,
+    String? status,
+    String? assignee,
+    String? note,
+  }) async {
+    try {
+      Response<dynamic> response = await _dio.patch(
+        '/work-orders/$workOrderId',
+        data: <String, dynamic>{
+          if (status != null) 'status': status,
+          if (assignee != null) 'assignee': assignee,
+          if (note != null) 'note': note,
+        },
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic item = response.data['item'];
+        if (item is Map) {
+          return item.cast<String, dynamic>();
+        }
+      }
+    } catch (e) {
+      debugPrint("IS EMRI GUNCELLEME HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> telemetryGonder({
+    required String assetId,
+    required String deviceId,
+    required Map<String, dynamic> metrics,
+    String? measuredAt,
+  }) async {
+    try {
+      Response<dynamic> response = await _dio.post(
+        '/iot/telemetry',
+        data: <String, dynamic>{
+          'asset_id': assetId,
+          'device_id': deviceId,
+          'metrics': metrics,
+          'measured_at': measuredAt,
+        },
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        return response.data.cast<String, dynamic>();
+      }
+    } catch (e) {
+      debugPrint("TELEMETRI GONDERME HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<List<Map<String, dynamic>>> alarmListesiniGetir() async {
+    try {
+      Response<dynamic> response = await _dio.get('/iot/alerts');
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic itemsRaw = response.data['items'];
+        if (itemsRaw is List) {
+          return itemsRaw
+              .whereType<Map>()
+              .map((Map e) => e.cast<String, dynamic>())
+              .toList();
+        }
+      }
+    } catch (e) {
+      debugPrint("ALARM LISTESI HATASI: $e");
+    }
+    return <Map<String, dynamic>>[];
+  }
+
+  Future<Map<String, dynamic>?> kpiGetir() async {
+    try {
+      Response<dynamic> response = await _dio.get('/analytics/kpi');
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic kpi = response.data['kpi'];
+        if (kpi is Map) {
+          return kpi.cast<String, dynamic>();
+        }
+      }
+    } catch (e) {
+      debugPrint("KPI HATASI: $e");
+    }
+    return null;
+  }
+
+  Future<Map<String, dynamic>?> erpSenkronBaslat(
+      {String connector = 'generic'}) async {
+    try {
+      Response<dynamic> response = await _dio.post(
+        '/integrations/erp/sync',
+        data: <String, dynamic>{'connector': connector},
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        dynamic job = response.data['job'];
+        if (job is Map) {
+          return job.cast<String, dynamic>();
+        }
+      }
+    } catch (e) {
+      debugPrint("ERP SENKRON HATASI: $e");
     }
     return null;
   }

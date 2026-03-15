@@ -4,11 +4,8 @@ class VarlikKutuphanesi extends StatelessWidget {
   final String? seciliArac; // Hangi araç seçili? (agac, kuyu vs.)
   final Function(String) onAracSecildi; // Seçilince Dashboard'a haber ver
 
-  const VarlikKutuphanesi({
-    super.key, 
-    required this.seciliArac, 
-    required this.onAracSecildi
-  });
+  const VarlikKutuphanesi(
+      {super.key, required this.seciliArac, required this.onAracSecildi});
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +19,10 @@ class VarlikKutuphanesi extends StatelessWidget {
           borderRadius: BorderRadius.circular(50),
           border: Border.all(color: Colors.white24, width: 1),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.5), blurRadius: 20, offset: const Offset(0, 10))
+            BoxShadow(
+                color: Colors.black.withOpacity(0.5),
+                blurRadius: 20,
+                offset: const Offset(0, 10))
           ],
         ),
         child: Row(
@@ -47,7 +47,7 @@ class VarlikKutuphanesi extends StatelessWidget {
 
   Widget _aracButonu(String tip, IconData icon, Color renk, String etiket) {
     bool aktif = seciliArac == tip;
-    
+
     return GestureDetector(
       onTap: () => onAracSecildi(tip),
       child: AnimatedContainer(
@@ -56,17 +56,14 @@ class VarlikKutuphanesi extends StatelessWidget {
         decoration: BoxDecoration(
           color: aktif ? renk.withOpacity(0.2) : Colors.white.withOpacity(0.05),
           shape: BoxShape.circle,
-          border: Border.all(
-            color: aktif ? renk : Colors.transparent, 
-            width: 2
-          ),
-          boxShadow: aktif ? [BoxShadow(color: renk.withOpacity(0.4), blurRadius: 10)] : [],
+          border:
+              Border.all(color: aktif ? renk : Colors.transparent, width: 2),
+          boxShadow: aktif
+              ? [BoxShadow(color: renk.withOpacity(0.4), blurRadius: 10)]
+              : [],
         ),
-        child: Icon(
-          icon, 
-          color: aktif ? renk : renk.withOpacity(0.5), 
-          size: aktif ? 32 : 24
-        ),
+        child: Icon(icon,
+            color: aktif ? renk : renk.withOpacity(0.5), size: aktif ? 32 : 24),
       ),
     );
   }
