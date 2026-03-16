@@ -36,6 +36,18 @@ HTTP errors can return:
   - Swagger UI: `/docs`
   - OpenAPI JSON: `/openapi.json`
 
+## Router Modularization (Phase 2 Closure)
+
+- Endpoint implementation has been moved to dedicated routers:
+  - `backend/routers/fault_router.py`
+  - `backend/routers/sync_router.py`
+  - `backend/routers/iot_router.py`
+- Contract paths are unchanged to preserve field compatibility.
+- Target behavior:
+  - stable response wrapper (`_meta`)
+  - stable error envelope (`error_code`, `message`, `details`)
+  - frozen WS telemetry schema (`ws.live.telemetry.v1`)
+
 ## Field Ingest
 
 - `POST /api/v1/field/ingest`
@@ -89,11 +101,45 @@ All responses include `_meta`.
 
 ## IoT
 
+- `POST /api/v1/iot/devices/register`
+  - Cihaz kaydi, anahtar uretimi ve topic policy doner.
+- `GET /api/v1/iot/devices`
+- `POST /api/v1/iot/devices/{device_id}/rotate-key`
 - `POST /api/v1/iot/telemetry`
   - Writes telemetry, updates digital card iot section, evaluates alarms, emits live websocket event.
+  - Telemetry quality fields:
+    - `quality_flag`
+    - `source`
+    - `received_at`
+    - `ingested_at`
 - `GET /api/v1/iot/alerts`
+- `PATCH /api/v1/iot/alerts/{alert_id}/ack`
+  - Fields: `operator`
+- `PATCH /api/v1/iot/alerts/{alert_id}/close`
+  - Fields: `reason`, `operator`
 
 All responses include `_meta`.
+
+### WebSocket Live Event Schema (Frozen)
+
+- Endpoint: `WS /ws/live`
+- Telemetry event schema (frozen): `ws.live.telemetry.v1`
+- Required fields:
+  - `schema_version`
+  - `type` (`telemetry`)
+  - `asset_id`
+  - `device_id`
+  - `metrics`
+  - `alerts`
+  - `measured_at`
+- Connection events:
+  - `connected` (`schema_version`, `at`)
+  - `pong` (`schema_version`, `at`)
+- Operational behavior:
+  - Ping timeout: `45s`
+  - Server timeout event: `heartbeat_timeout`
+  - Schema enforcement: ping paketindeki `schema_version` uyumsuzsa `schema_mismatch` donup baglanti kapatilir
+  - Reconnect hint: `reconnect_with_exponential_backoff`
 
 ## Analytics / Integrations
 
@@ -102,3 +148,12 @@ All responses include `_meta`.
 - `GET /api/v1/integrations/erp/jobs`
 
 All responses include `_meta`.
+
+## E2E Contract Test Paketi
+
+- Test file: `backend/tests/test_iot_lifecycle_contract.py`
+- Kapsam:
+  - telemetry normalize quality alanlari
+  - device onboarding contract shape
+  - alarm ack/close lifecycle
+  - telemetry -> ws event contract shape

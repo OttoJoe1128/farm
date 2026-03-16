@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, WebSocketDisconnect, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, WebSocket, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -26,11 +26,16 @@ from services.canonical_service import (
     iso_now_utc,
 )
 from services.work_order_service import append_work_order, update_work_order
-from services.iot_service import normalize_telemetry, detect_alerts
 from services.analytics_service import build_kpi
 from services.erp_service import run_connector_sync
 from services.state_service import bump_state_version
 from services.conflict_policy_service import resolve_asset_conflict
+from services.live_event_contract_service import (
+    WS_EVENT_SCHEMA_VERSION,
+)
+from routers.iot_router import create_iot_router
+from routers.fault_router import create_fault_router
+from routers.sync_router import create_sync_router
 try:
     from deepforest import main as deepforest_main
 except ImportError:
@@ -131,19 +136,6 @@ class RefreshRequest(BaseModel):
 class LogoutRequest(BaseModel):
     refresh_token: Optional[str] = None
 
-class SyncOperation(BaseModel):
-    client_op_id: str
-    type: str
-    payload: Dict[str, Any] = {}
-    created_at: Optional[str] = None
-
-class SyncRequest(BaseModel):
-    base_version: Optional[int] = None
-    ops: List[SyncOperation] = []
-    sync_requested_at: Optional[str] = None
-    conflict_policy: Optional[str] = "latest_timestamp_wins"
-
-
 class AssetMutationRequest(BaseModel):
     asset_id: Optional[str] = None
     asset: Optional[Dict[str, Any]] = None
@@ -185,22 +177,12 @@ class WorkOrderUpdateRequest(BaseModel):
     note: Optional[str] = None
 
 
-class TelemetryIngestRequest(BaseModel):
-    asset_id: str
-    device_id: str
-    metrics: Dict[str, Any]
-    measured_at: Optional[str] = None
-
-
 class ErpSyncRequest(BaseModel):
     connector: str = "generic"
 
-class FaultResolveRequest(BaseModel):
-    resolved_at: Optional[str] = None
-    note: Optional[str] = ""
-    resolver_user_id: Optional[str] = None
-
 API_CONTRACT_VERSION = "farm.v1.1.phase2"
+WS_HEARTBEAT_TIMEOUT_SECONDS = 45
+WS_RECONNECT_HINT = "reconnect_with_exponential_backoff"
 
 def _response_meta(current_user: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     request_id = uuid.uuid4().hex
@@ -1302,6 +1284,7 @@ def _empty_user_state() -> Dict[str, Any]:
         "work_orders": [],
         "telemetry_log": [],
         "alerts": [],
+        "iot_devices": [],
         "integration_jobs": [],
     }
 
@@ -1323,6 +1306,8 @@ def get_user_state(user_id: str) -> Dict[str, Any]:
         user_state["telemetry_log"] = []
     if not isinstance(user_state.get("alerts"), list):
         user_state["alerts"] = []
+    if not isinstance(user_state.get("iot_devices"), list):
+        user_state["iot_devices"] = []
     if not isinstance(user_state.get("integration_jobs"), list):
         user_state["integration_jobs"] = []
     if not isinstance(user_state.get("version"), int):
@@ -1406,6 +1391,53 @@ async def _broadcast_live_event(event_payload: Dict[str, Any]) -> None:
                 live_websocket_clients.remove(dead_client)
 
 ensure_default_admin()
+
+app.include_router(
+    create_fault_router(
+        get_current_user=get_current_user,
+        get_user_state=get_user_state,
+        save_user_state=save_user_state,
+        touch_user_state=_touch_user_state,
+        find_asset_index_by_id=find_asset_index_by_id,
+        ensure_asset_identity=ensure_asset_identity,
+        with_meta=_with_meta,
+        api_error=_api_error,
+        build_fault_log_entry=_build_fault_log_entry,
+    )
+)
+
+app.include_router(
+    create_sync_router(
+        get_current_user=get_current_user,
+        get_user_state=get_user_state,
+        save_user_state=save_user_state,
+        touch_user_state=_touch_user_state,
+        canonicalize_map_items=canonicalize_map_items,
+        ensure_asset_identity=ensure_asset_identity,
+        resolve_asset_conflict=resolve_asset_conflict,
+        find_asset_index=_find_asset_index,
+        iso_now_utc=iso_now_utc,
+        with_meta=_with_meta,
+    )
+)
+
+app.include_router(
+    create_iot_router(
+        get_current_user=get_current_user,
+        get_user_state=get_user_state,
+        save_user_state=save_user_state,
+        touch_user_state=_touch_user_state,
+        find_asset_index_by_id=find_asset_index_by_id,
+        ensure_asset_identity=ensure_asset_identity,
+        with_meta=_with_meta,
+        api_error=_api_error,
+        broadcast_live_event=_broadcast_live_event,
+        iso_now_utc=iso_now_utc,
+        live_websocket_clients=live_websocket_clients,
+        ws_heartbeat_timeout_seconds=WS_HEARTBEAT_TIMEOUT_SECONDS,
+        ws_reconnect_hint=WS_RECONNECT_HINT,
+    )
+)
 
 @app.post("/api/v1/auth/register")
 def register(request: RegisterRequest):
@@ -1491,7 +1523,26 @@ def contracts(current_user: Dict[str, Any] = Depends(get_current_user)):
                 {"method": "PATCH", "path": "/api/v1/gis/faults/{log_id}/resolve"},
                 {"method": "POST", "path": "/api/v1/work-orders"},
                 {"method": "POST", "path": "/api/v1/iot/telemetry"},
+                {"method": "POST", "path": "/api/v1/iot/devices/register"},
+                {"method": "POST", "path": "/api/v1/iot/devices/{device_id}/rotate-key"},
+                {"method": "PATCH", "path": "/api/v1/iot/alerts/{alert_id}/ack"},
+                {"method": "PATCH", "path": "/api/v1/iot/alerts/{alert_id}/close"},
             ],
+            "ws_live_schema": {
+                "version": WS_EVENT_SCHEMA_VERSION,
+                "required_fields": [
+                    "schema_version",
+                    "type",
+                    "asset_id",
+                    "device_id",
+                    "metrics",
+                    "alerts",
+                    "measured_at",
+                ],
+                "telemetry_type_value": "telemetry",
+                "heartbeat_timeout_seconds": WS_HEARTBEAT_TIMEOUT_SECONDS,
+                "reconnect_hint": WS_RECONNECT_HINT,
+            },
             "response_schema": {
                 "required": ["status", "_meta"],
                 "_meta": ["api_version", "request_id", "served_at", "user_id"],
@@ -1668,181 +1719,6 @@ async def upload_photo(
         current_user,
     )
 
-@app.post("/api/v1/gis/add-fault")
-def add_fault_record(
-    request: FaultLogCreateRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
-    target_index: int = find_asset_index_by_id(map_data, request.asset_id)
-    if target_index < 0:
-        _api_error(
-            status_code=404,
-            error_code="asset_not_found",
-            message="Ariza kaydi eklenecek varlik bulunamadi.",
-            details={"asset_id": request.asset_id},
-        )
-    fault_logs: List[Dict[str, Any]] = list(user_state.get("fault_logs", []))
-    fault_log: Dict[str, Any] = _build_fault_log_entry(request, current_user)
-    fault_logs.append(fault_log)
-    target_asset: Dict[str, Any] = ensure_asset_identity(map_data[target_index])
-    properties: Dict[str, Any] = dict(target_asset.get("properties", {}))
-    asset_logs: List[Dict[str, Any]] = list(properties.get("logs", []))
-    asset_logs.append(
-        {
-            "id": fault_log["log_id"],
-            "type": "fault",
-            "description": fault_log["description"],
-            "severity": fault_log["severity"],
-            "status": fault_log["status"],
-            "at": fault_log["created_at"],
-        }
-    )
-    properties["logs"] = asset_logs[-200:]
-    open_fault_count: int = 0
-    for item in asset_logs:
-        if str(item.get("status", "open")) != "resolved":
-            open_fault_count += 1
-    properties["open_fault_count"] = open_fault_count
-    properties["last_fault_at"] = fault_log["created_at"]
-    target_asset["properties"] = properties
-    map_data[target_index] = ensure_asset_identity(target_asset)
-    user_state["fault_logs"] = fault_logs[-5000:]
-    user_state["map"] = map_data
-    _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
-    return _with_meta(
-        {
-            "status": "ok",
-            "fault": fault_log,
-            "asset_projection": {
-                "asset_id": request.asset_id,
-                "open_fault_count": open_fault_count,
-                "last_fault_at": fault_log["created_at"],
-            },
-        },
-        current_user,
-    )
-
-
-@app.get("/api/v1/gis/faults")
-def list_fault_logs(
-    asset_id: Optional[str] = None,
-    status: Optional[str] = None,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    fault_logs: List[Dict[str, Any]] = list(user_state.get("fault_logs", []))
-    results: List[Dict[str, Any]] = []
-    for item in fault_logs:
-        if not isinstance(item, dict):
-            continue
-        if asset_id is not None and str(item.get("asset_id", "")) != str(asset_id):
-            continue
-        if status is not None and str(item.get("status", "")) != str(status):
-            continue
-        results.append(item)
-    return _with_meta(
-        {
-            "status": "ok",
-            "count": len(results),
-            "items": results[-1000:],
-        },
-        current_user,
-    )
-
-
-@app.patch("/api/v1/gis/faults/{log_id}/resolve")
-def resolve_fault_log(
-    log_id: str,
-    request: FaultResolveRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    fault_logs: List[Dict[str, Any]] = list(user_state.get("fault_logs", []))
-    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
-    target_index: int = -1
-    for idx, item in enumerate(fault_logs):
-        if str(item.get("log_id", "")) == str(log_id):
-            target_index = idx
-            break
-    if target_index < 0:
-        _api_error(
-            status_code=404,
-            error_code="fault_not_found",
-            message="Cozulecek ariza kaydi bulunamadi.",
-            details={"log_id": log_id},
-        )
-    row: Dict[str, Any] = dict(fault_logs[target_index])
-    if str(row.get("status", "open")) == "resolved":
-        return _with_meta(
-            {
-                "status": "ok",
-                "fault": row,
-                "asset_projection": {
-                    "asset_id": str(row.get("asset_id", "")),
-                    "open_fault_count": None,
-                    "last_fault_at": str(row.get("created_at", "")),
-                },
-                "contract": {"log_semantics": "asset_projection_plus_event_log.v1"},
-            },
-            current_user,
-        )
-    resolved_at = str(request.resolved_at or iso_now_utc())
-    row["status"] = "resolved"
-    row["resolved_at"] = resolved_at
-    updates: List[Dict[str, Any]] = list(row.get("updates", []))
-    updates.append(
-        {
-            "event_type": "fault_resolved",
-            "at": resolved_at,
-            "resolver_user_id": str(request.resolver_user_id or current_user.get("id", "")),
-            "note": str(request.note or ""),
-        }
-    )
-    row["updates"] = updates[-50:]
-    fault_logs[target_index] = row
-    asset_id: str = str(row.get("asset_id", ""))
-    asset_index = find_asset_index_by_id(map_data, asset_id)
-    open_fault_count: Optional[int] = None
-    if 0 <= asset_index < len(map_data):
-        target_asset: Dict[str, Any] = ensure_asset_identity(map_data[asset_index])
-        props: Dict[str, Any] = dict(target_asset.get("properties", {}))
-        asset_logs: List[Dict[str, Any]] = list(props.get("logs", []))
-        for i, asset_log in enumerate(asset_logs):
-            if str(asset_log.get("id", "")) == str(log_id):
-                patched = dict(asset_log)
-                patched["status"] = "resolved"
-                patched["resolved_at"] = resolved_at
-                asset_logs[i] = patched
-                break
-        open_fault_count = 0
-        for item in asset_logs:
-            if str(item.get("status", "open")) != "resolved":
-                open_fault_count += 1
-        props["logs"] = asset_logs[-200:]
-        props["open_fault_count"] = open_fault_count
-        target_asset["properties"] = props
-        map_data[asset_index] = ensure_asset_identity(target_asset)
-        user_state["map"] = map_data
-    user_state["fault_logs"] = fault_logs[-5000:]
-    _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
-    return _with_meta(
-        {
-            "status": "ok",
-            "fault": row,
-            "asset_projection": {
-                "asset_id": asset_id,
-                "open_fault_count": open_fault_count,
-                "last_fault_at": str(row.get("created_at", "")),
-            },
-            "contract": {"log_semantics": "asset_projection_plus_event_log.v1"},
-        },
-        current_user,
-    )
-
 @app.get("/api/v1/gis/parcels")
 def list_parcels(current_user: Dict[str, Any] = Depends(get_current_user)):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
@@ -1986,120 +1862,6 @@ def delete_asset_by_id(
     save_user_state(str(current_user["id"]), user_state)
     return _with_meta({"status": "deleted", "asset": removed_asset}, current_user)
 
-@app.post("/api/v1/gis/sync")
-def sync_gis(
-    request: SyncRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    user_id: str = str(current_user["id"])
-    user_state: Dict[str, Any] = get_user_state(user_id)
-    server_version: int = int(user_state.get("version", 0))
-    conflict_policy = str(request.conflict_policy or "latest_timestamp_wins")
-    if (
-        request.base_version is not None
-        and request.base_version != server_version
-        and len(request.ops) > 0
-    ):
-        return _with_meta(
-            {
-                "status": "conflict",
-                "reason": "version_mismatch",
-                "map": user_state.get("map", []),
-                "version": server_version,
-                "updated_at": user_state.get("updated_at"),
-                "policy_applied": conflict_policy,
-            },
-            current_user,
-        )
-    map_data: List[Dict[str, Any]] = canonicalize_map_items(list(user_state.get("map", [])))
-    processed_ops: List[str] = list(user_state.get("processed_op_ids", []))
-    processed_set = set(processed_ops)
-    applied_count: int = 0
-    skipped_count: int = 0
-    conflicts: List[Dict[str, Any]] = []
-    for op in request.ops:
-        op_id: str = str(op.client_op_id).strip()
-        if op_id == "" or op_id in processed_set:
-            skipped_count += 1
-            continue
-        payload: Dict[str, Any] = dict(op.payload or {})
-        op_type: str = str(op.type)
-        if op_type == "add_asset":
-            asset_obj: Any = payload.get("asset")
-            if isinstance(asset_obj, dict):
-                map_data.append(ensure_asset_identity(asset_obj))
-                applied_count += 1
-        elif op_type == "update_asset":
-            asset_obj = payload.get("asset")
-            target_index: int = _find_asset_index(map_data, payload)
-            if isinstance(asset_obj, dict) and 0 <= target_index < len(map_data):
-                existing_asset = ensure_asset_identity(map_data[target_index])
-                incoming_asset = ensure_asset_identity(asset_obj)
-                resolution = resolve_asset_conflict(
-                    existing_asset=existing_asset,
-                    incoming_asset=incoming_asset,
-                    policy=conflict_policy,
-                )
-                resolved_asset = resolution["resolved_asset"]
-                map_data[target_index] = resolved_asset
-                applied_count += 1
-            else:
-                conflicts.append(
-                    {
-                        "type": "update_asset_not_found",
-                        "client_op_id": op_id,
-                        "asset_id": payload.get("asset_id"),
-                        "index": payload.get("index"),
-                    }
-                )
-        elif op_type == "delete_asset":
-            target_index = _find_asset_index(map_data, payload)
-            if 0 <= target_index < len(map_data):
-                map_data.pop(target_index)
-                applied_count += 1
-            else:
-                conflicts.append(
-                    {
-                        "type": "delete_asset_not_found",
-                        "client_op_id": op_id,
-                        "asset_id": payload.get("asset_id"),
-                        "index": payload.get("index"),
-                    }
-                )
-        elif op_type == "upload_parcel":
-            features: Any = payload.get("features", [])
-            if isinstance(features, list) and len(features) > 0:
-                for feature in features:
-                    if isinstance(feature, dict):
-                        map_data.append(ensure_asset_identity(feature))
-                applied_count += 1
-        elif op_type == "replace_snapshot":
-            full_map: Any = payload.get("map")
-            if isinstance(full_map, list):
-                map_data = canonicalize_map_items([item for item in full_map if isinstance(item, dict)])
-                applied_count += 1
-        processed_set.add(op_id)
-    if applied_count > 0:
-        user_state["map"] = map_data
-        _touch_user_state(user_state)
-    user_state["processed_op_ids"] = list(processed_set)[-500:]
-    save_user_state(user_id, user_state)
-    return _with_meta(
-        {
-            "status": "ok",
-            "applied": applied_count,
-            "skipped": skipped_count,
-            "map": canonicalize_map_items(user_state.get("map", [])),
-            "version": user_state.get("version", 0),
-            "updated_at": user_state.get("updated_at"),
-            "conflicts": conflicts,
-            "sync_requested_at": request.sync_requested_at or iso_now_utc(),
-            "policy_applied": conflict_policy,
-        },
-        current_user,
-    )
-
-
 @app.post("/api/v1/field/ingest")
 def ingest_field_data(
     request: FieldIngestRequest,
@@ -2242,106 +2004,6 @@ def patch_work_order(
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
     return _with_meta({"status": "ok", "item": updated}, current_user)
-
-
-@app.post("/api/v1/iot/telemetry")
-async def ingest_telemetry(
-    request: TelemetryIngestRequest,
-    current_user: Dict[str, Any] = Depends(get_current_user),
-):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
-    telemetry_log: List[Dict[str, Any]] = list(user_state.get("telemetry_log", []))
-    alerts: List[Dict[str, Any]] = list(user_state.get("alerts", []))
-    normalized = normalize_telemetry(request.dict())
-    if normalized.get("asset_id", "") == "":
-        _api_error(
-            status_code=400,
-            error_code="validation_error",
-            message="asset_id zorunludur.",
-            details={"field": "asset_id"},
-        )
-    target_index = find_asset_index_by_id(map_data, str(normalized["asset_id"]))
-    if target_index < 0:
-        _api_error(
-            status_code=404,
-            error_code="asset_not_found",
-            message="Telemetri gonderilecek varlik bulunamadi.",
-            details={"asset_id": normalized.get("asset_id")},
-        )
-    target_asset = ensure_asset_identity(map_data[target_index])
-    props: Dict[str, Any] = dict(target_asset.get("properties", {}))
-    digital_card: Dict[str, Any] = dict(props.get("digital_card", {}))
-    iot_card: Dict[str, Any] = dict(digital_card.get("iot", {}))
-    alarm_card: Dict[str, Any] = dict(digital_card.get("alarm", {}))
-    metrics: Dict[str, Any] = dict(normalized.get("metrics", {}))
-    for key, value in metrics.items():
-        iot_card[key] = value
-    iot_card["last_seen_at"] = str(normalized.get("measured_at"))
-    iot_card["updated_at"] = iso_now_utc()
-    digital_card["iot"] = iot_card
-    props["digital_card"] = digital_card
-    detected_alerts = detect_alerts(iot_card, alarm_card)
-    if len(detected_alerts) > 0:
-        for alert in detected_alerts:
-            alert["asset_id"] = normalized["asset_id"]
-            alert["device_id"] = normalized["device_id"]
-        alerts.extend(detected_alerts)
-        alerts = alerts[-1000:]
-    props["iot_connected"] = True
-    target_asset["properties"] = props
-    map_data[target_index] = ensure_asset_identity(target_asset)
-    telemetry_log.append(normalized)
-    telemetry_log = telemetry_log[-5000:]
-    user_state["map"] = map_data
-    user_state["telemetry_log"] = telemetry_log
-    user_state["alerts"] = alerts
-    _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
-    await _broadcast_live_event(
-        {
-            "type": "telemetry",
-            "asset_id": normalized["asset_id"],
-            "device_id": normalized["device_id"],
-            "metrics": metrics,
-            "measured_at": normalized["measured_at"],
-            "alerts": detected_alerts,
-        }
-    )
-    return _with_meta(
-        {"status": "ok", "telemetry": normalized, "alerts": detected_alerts},
-        current_user,
-    )
-
-
-@app.get("/api/v1/iot/alerts")
-def list_alerts(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-    alerts: List[Dict[str, Any]] = list(user_state.get("alerts", []))
-    return _with_meta(
-        {"status": "ok", "items": alerts, "count": len(alerts)},
-        current_user,
-    )
-
-
-@app.websocket("/ws/live")
-async def websocket_live(websocket: WebSocket):
-    await websocket.accept()
-    live_websocket_clients.append(websocket)
-    try:
-        await websocket.send_json({"type": "connected", "at": iso_now_utc()})
-        while True:
-            try:
-                incoming = await websocket.receive_json()
-                if isinstance(incoming, dict) and str(incoming.get("type")) == "ping":
-                    await websocket.send_json({"type": "pong", "at": iso_now_utc()})
-            except Exception:
-                await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        if websocket in live_websocket_clients:
-            live_websocket_clients.remove(websocket)
 
 
 @app.get("/api/v1/analytics/kpi")
