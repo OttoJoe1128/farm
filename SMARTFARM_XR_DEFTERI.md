@@ -1,116 +1,115 @@
-# Smart Farm XR - Tek Proje Defteri
+# SmartFarm Ortak Yol Haritasi ve Operasyon Defteri
 
-Bu dosya projedeki tek resmi tanitim + durum + TODO kaynagidir.
+Bu dosya `farm` (ana uygulama) ve `smartfarm-field` (saha uygulamasi) ekiplerinin ortak yol haritasi kaynagidir.
+Iki ekip de bu dosyayi guncelleyebilir.
 
-## 1) Proje Amaci
-- Ciftlik parsellerini dijital ikiz olarak haritada yonetmek.
-- Parsel ustune uydu goruntusunu birebir oturtup varlik yerlestirmeyi hizlandirmak.
-- Dusuk donanimli Linux ortaminda stabil calismak.
+## 1) Kapsam ve Amac
+- Ana hedef: saha uygulamasi ile ana backend kontrat uyumunu koruyarak kararlı urun cikarmak.
+- Bu dosya tek noktadan su ihtiyaclari yonetir:
+  - Gelistirme asamalari
+  - Ortak TODO listesi
+  - Takvim ve sorumluluk dagilimi
+  - Durum guncelleme kurallari
 
-## 2) Guncel Teknik Mimari
+## 2) Mimari Cerceve (Kisa)
 
-### Frontend
-- Flutter + flutter_map
-- Coklu parsel yukleme ve otomatik harita odaklama
-- "Uyduyu Getir" aksiyonu (otomatik prefetch + elle yenileme)
-- Uydu overlay'i backend'den gelen gercek bounds ile yerlestirme
-- Snap, olcum modu ve nokta tabanli varlik gostergeleri
+### Ana Uygulama (`farm`)
+- Backend: FastAPI (`backend/main.py` + `backend/routers/*`)
+- Yonetim paneli: `smartfarm_xr` (Flutter Web)
+- Faz 3 kontratlari:
+  - `GET /api/v1/contracts`
+  - `WS /ws/live` (`ws.live.telemetry.v1`)
+  - Fault lifecycle + IoT lifecycle endpointleri
 
-### Backend
-- FastAPI (`backend/main.py`)
-- Geometri hesaplari Web Mercator (EPSG:3857) tabanli
-- Parsel maskeleme: OpenCV `fillPoly` ile dis alanlari tam seffaflama
-- Uydu kaynagi fallback zinciri:
-  - `esri`
-  - `mapbox` (token/izin uygunsa)
-  - `custom_xyz` (URL template ile)
-- `custom_xyz` icin varsayilan ucretsiz deneme template'leri tanimli
-- Esri export hatasinda XYZ tile fallback + stitch
+### Saha Uygulamasi (`smartfarm-field`)
+- Android Flutter istemcisi
+- Ana backend'e veri gonderir (telemetry, fault, senkronizasyon)
+- Faz 3 odaklari:
+  - kontrat kesfi
+  - canli projection
+  - reconnect + heartbeat
+  - alarm lifecycle
 
-## 3) Kritik Calistirma Notlari
+## 3) Guncel Durum Ozeti (2026-03-16)
 
-### TEK PORT COZUMU (IDX / Cloud Workstations icin onerilen)
-IDX ortaminda iki farkli port (8000/8080) CORS ve yetki sorunu yaratir.
-Cozum: Flutter'i build edip backend uzerinden sun. Her sey tek portta calisir.
+### Tamamlananlar
+- [x] Backend APIRouter moduler ayrisma tamam.
+- [x] Faz 2/Faz 3 kontratlari dokumante ve endpoint pathleri backward-compatible.
+- [x] Saha tarafi Faz 3 ana akislarinin commit zinciri tamamlandi (dis repoda).
 
-```bash
-# 1. Flutter web build olustur
-cd ~/farm/smartfarm_xr
-flutter build web
+### Aktif Riskler
+- [ ] `farm` backend API test kapsami tum kritik endpointleri kapsamiyor.
+- [ ] `smartfarm_xr` test kapsami iskelet seviyede.
+- [ ] Saha + ana uygulama ortak E2E smoke otomasyonu eksik.
+- [ ] Saha-Backend kontratinda fault resolve endpoint uyumsuzlugu riski var.
+- [ ] Saha local `asset.id` ile backend `asset_id` esleme kurali net degil.
+- [ ] `ws/live` akisinda auth/izolasyon sertlestirmesi ana uygulama tarafinda netlestirilmeli.
 
-# 2. Backend'i baslat (Flutter web dosyalarini da otomatik sunar)
-cd ~/farm/backend
-python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
-```
+## 4) Ortak TODO Listesi (Tek Backlog)
 
-Sonra tarayicida tek adres:
-```
-https://8000-<IDX-id>.cluster-<cluster-id>.cloudworkstations.dev/
-```
-- `/` -> Flutter uygulamasi
-- `/docs` -> FastAPI Swagger UI
-- `/api/v1/...` -> API endpointleri
+| ID | Oncelik | Birim | Gorev | Durum | Bagimlilik | Cikis Kriteri |
+|----|---------|-------|-------|-------|------------|---------------|
+| ORTAK-009 | P0 | Ortak | Saha-Backend fault resolve kontratini tek endpointte dondur (`PATCH /api/v1/gis/faults/{log_id}/resolve`) | Acik | ORTAK-001 | Saha istemcisi ve backend ayni endpoint/method ile resolve akisinda yesil |
+| ORTAK-010 | P0 | Ortak | `asset.id` (saha) -> `asset_id` (backend) esleme stratejisini sabitle ve dokumante et | Acik | ORTAK-001 | Device register, telemetry, fault akislari mapping ile 404 uretmeden calisiyor |
+| ORTAK-011 | P0 | Ana Uygulama | `ws/live` auth + scope izolasyon sertlestirmesi | Acik | ORTAK-002 | Yetkisiz baglanti reddediliyor, canli event yalniz ilgili scope'a yayinlaniyor |
+| ORTAK-012 | P0 | Saha Uygulamasi | API response parserlarini backend wrapper shape ile hizala (`data/items/detail`) | Acik | ORTAK-009 | `map/parcels/fault/alert` parse akislarinda runtime cast hatasi yok |
+| ORTAK-013 | P0 | Saha Uygulamasi | Guvenlik sertlestirme: token saklama + cleartext baglanti kontrolu | Acik | ORTAK-012 | Hassas token guvenli depoda, production baglanti HTTPS kuraliyla calisiyor |
+| ORTAK-014 | P1 | Ana Uygulama | Router seviyesinde hata envelope standardizasyonu (`error_code/message/detail`) | Acik | ORTAK-002 | Tum kritik hata senaryolari tek sekil parser ile saha tarafinda okunuyor |
+| ORTAK-015 | P1 | Saha Uygulamasi | Sync queue semantigini tamamla (basarili durumda kuyruk temizleme + retry netligi) | Acik | ORTAK-010 | Kuyruk sismesi olmadan retry politikasi izlenebilir ve testli |
+| ORTAK-001 | P0 | Ana Uygulama | Contract discovery snapshot testlerini genislet | Tamam | Yok | `contracts` endpoint shape + kritik endpoint listesi testte dogrulaniyor |
+| ORTAK-002 | P0 | Ana Uygulama | Fault + IoT lifecycle API test kapsamini arttir | Devam Ediyor | ORTAK-001 | Kritik endpointler icin basarili/hata senaryolari otomatik calisiyor |
+| ORTAK-003 | P0 | Saha Uygulamasi | Canli telemetry projection widget testleri | Acik | ORTAK-001 | Varlik listesi ve alarm badge yansimasi testten geciyor |
+| ORTAK-004 | P0 | Saha Uygulamasi | Reconnect + heartbeat hata senaryolari | Acik | ORTAK-001 | `heartbeat_timeout` ve reconnect akislarinin testleri var |
+| ORTAK-005 | P1 | Ana Uygulama | `backend/main.py` endpointlerini alan bazli routerlara tasima (path degismeden) | Acik | ORTAK-002 | Endpoint davranisi degismeden kod parcali ve testlenebilir |
+| ORTAK-006 | P1 | Ana Uygulama | `smartfarm_xr` kritik widget testleri | Acik | ORTAK-002 | Auth/dashboard/canli gorunum testleri yesil |
+| ORTAK-007 | P1 | Ortak | Saha + backend E2E smoke paketi | Acik | ORTAK-002, ORTAK-004 | Telemetry->WS->UI ve fault resolve akisi otomatik dogrulaniyor |
+| ORTAK-008 | P2 | Ortak | Runbook ve release checklist birlestirme | Acik | ORTAK-007 | Tek checklist ile release oncesi kontrol tamamlaniyor |
 
-### Alternatif: Localhost gelistirme (IDX disinda)
-```bash
-# Terminal 1: Backend
-cd backend && python3 -m uvicorn main:app --reload --host 0.0.0.0 --port 8000
+## 5) Faz Bazli Yol Haritasi
 
-# Terminal 2: Flutter (debug modu)
-cd smartfarm_xr && flutter run -d web-server --web-port 8080 --web-hostname 0.0.0.0
-```
+### Faz A - Stabilizasyon (Mevcut Faz)
+- Hedef: kontrat driftini durdurmak ve test guvenini yukselmek.
+- Odak:
+  - ORTAK-009, ORTAK-010, ORTAK-011, ORTAK-012, ORTAK-001, ORTAK-002, ORTAK-003, ORTAK-004
 
-### IDX Uygulama Acilis Sirasi (tek port)
-1. `flutter build web` calistir (smartfarm_xr klasorunde).
-2. Backend'i `8000` portunda baslat.
-3. Tarayicida `https://8000-...cloudworkstations.dev/` ac. Hem uygulama hem API ayni adreste.
-4. API testi icin: `https://8000-...cloudworkstations.dev/docs`
+### Faz B - Sertlestirme
+- Hedef: bakim maliyetini dusurmek ve CI kararliligini arttirmak.
+- Odak:
+  - ORTAK-013, ORTAK-014, ORTAK-015, ORTAK-005, ORTAK-006
 
-### Opsiyonel Env Ayarlari
-- `MAPBOX_ACCESS_TOKEN`
-- `IMAGERY_PROVIDER_MODE` (`auto|esri|mapbox|custom_xyz`)
-- `IMAGERY_PROVIDER_PRIORITY` (ornek: `esri,mapbox,custom_xyz`)
-- `CUSTOM_XYZ_TILE_TEMPLATE`
-- `CUSTOM_XYZ_TILE_TEMPLATES` (virgulle birden cok template)
-- `MIN_IMAGERY_YEAR` (varsayilan `2025`)
-- `REQUIRE_KNOWN_FRESHNESS` (varsayilan `false`)
+### Faz C - Operasyonel Hazirlik
+- Hedef: iki ekip icin ortak release mekanizmasi.
+- Odak:
+  - ORTAK-007, ORTAK-008
 
-## 4) Guncel Durum (Tamamlananlar)
-- [x] Coklu parsel yukleme
-- [x] Parsel disi alanin tam seffaf maskelenmesi
-- [x] Overlay'i gercek bounds ile oturtma
-- [x] Uydu prefetch + onbellek + zorla yenile
-- [x] Saglayici fallback (esri/mapbox/custom_xyz)
-- [x] Esri export hata fallback (xyz tile stitch)
-- [x] Snap ve olcum modu
-- [x] Varlik ikonlarini nokta gorunumune indirme
+## 6) Bu Haftanin Uygulama Plani
 
-## 5) Aktif TODO
-- [ ] Canli ortamda tek bir lisansli ve guncel saglayiciyi netlestirip sabitleme
-- [ ] `custom_xyz` kullanilacaksa hukuk/lisans uyumlulugunu dokumante etme
-- [x] Kisa operasyon runbook'u (hata kodu -> aksiyon tablosu) eklendi
+### Ana Uygulama (`farm`)
+1. ORTAK-009: Fault resolve endpoint kontratini saha ile netlestir ve sabitle.
+2. ORTAK-011: `ws/live` auth + scope izolasyon sertlestirmesini ac.
+3. ORTAK-001 ve ORTAK-002: Kontrat + lifecycle API test kapsamlarini tamamla.
+4. ORTAK-014: Hata envelope standardini saha parserlarina uygun hale getir.
 
-## 6) Kapanan / Silinen Gorevler
-- Eski ayri roadmap ve tanitim dosyalari kaldirildi.
-- Bu belge disinda proje tanitim/todo kaynagi tutulmayacak.
+### Saha Uygulamasi (`smartfarm-field`)
+1. ORTAK-010: `asset.id` -> `asset_id` mapping stratejisini kod ve depolamada sabitle.
+2. ORTAK-012: API response parserlarini backend wrapper yapisiyla hizala.
+3. ORTAK-003 ve ORTAK-004: Canli projection + reconnect/heartbeat test kapsamlarini genislet.
+4. ORTAK-013: Token/transport guvenlik sertlestirmesi icin hazirlik dalini ac.
+5. ORTAK-007 icin ortak smoke senaryolarina girdi sagla.
 
-## 7) Sorun Giderme (Runbook)
+## 7) Guncelleme Kurali (Iki Ekip Icin)
+- Her gorev guncellemesinde `Durum` alani degistirilir (`Acik`, `Devam Ediyor`, `Tamam`).
+- Tamamlanan satira kisa not eklenir (commit hash veya tarih).
+- Yeni is acilacaksa mevcut ID sirasina eklenir (orn: `ORTAK-009`).
+- Bu dosya disinda ayri roadmap tutulmaz; eski dosyalar referans olarak kalabilir.
+- Her yeni gelistirme adimindan once bu dosya okunur, once P0 acik maddelerden bir sonraki is secilir.
+- Bir is `Tamam` olmadan bagimli sonraki asamaya gecilmez.
+- Ana uygulama ajanina acik not: `farm` tarafinda calismaya baslamadan once bu dosyayi referans alip sadece buradaki aktif TODO satirlarina gore ilerle.
 
-### Hata Kodu -> Aksiyon
-- `401` (`Mapbox Direct access not allowed`): token yetkisi yetersiz; `mapbox` devre disi kalir, `esri/custom_xyz` fallback kullanilir.
-- `412` (`freshness` filtre): `MIN_IMAGERY_YEAR` ve `REQUIRE_KNOWN_FRESHNESS` ayarlarini kontrol et; gerekirse `REQUIRE_KNOWN_FRESHNESS=false`.
-- `502` (`tile/export`): provider fallback logunu kontrol et; `custom_xyz` template'lerini guncelle veya `IMAGERY_PROVIDER_MODE=esri`.
-- `422` (`upload-map`): frontend multipart gonderir; backend `UploadFile` endpointinin aktif oldugunu dogrula.
-
-### Sik Senaryolar
-- Uydu goruntusu gelmiyor: backend logunda `Uydu provider sirasi` ve `... hatasi` satirlarini kontrol et.
-- Goruntu eski gorunuyor: `IMAGERY_PROVIDER_MODE=custom_xyz` ile alternatif template test et, uzun bas ile zorla yenile.
-- Overlay kayik: `overlay_bounds` response alaninin geldigini ve frontend tarafinda kullanildigini dogrula.
-- Web performans sorunu: Flutter'i sadece HTML renderer komutuyla calistir.
-
-### Hazir Calistirma Profilleri
-- Stabil profil (onerilen): `IMAGERY_PROVIDER_MODE=auto`
-- Ucretsiz kaynak deneme: `IMAGERY_PROVIDER_MODE=custom_xyz`
-- Sadece Esri: `IMAGERY_PROVIDER_MODE=esri`
-- Sadece Mapbox (yetkili token varsa): `IMAGERY_PROVIDER_MODE=mapbox`
+## 8) Referans Dosyalar
+- `backend/ENDPOINT_CONTRACTS_PHASE2.md`
+- `SAHA_UYGULAMASI_PHASE3_GOREV_RAPORU.md`
+- `AYRI_REPO_SAHA.md`
+- `IKI_UYGULAMA_OZETI.md`
+- `PROSEDUR_TEST_APK.md`
 
