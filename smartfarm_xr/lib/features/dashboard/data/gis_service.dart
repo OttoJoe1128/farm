@@ -34,18 +34,24 @@ class _UyduOnbellekKaydi {
 }
 
 class GisService {
-  final Dio _dio = Dio(BaseOptions(
-    baseUrl: 'http://127.0.0.1:8000/api/v1',
-    connectTimeout: const Duration(seconds: 10),
-  ));
+  final Dio _dio;
   final LocalStorageService _storage = const LocalStorageService();
   final Map<String, _UyduOnbellekKaydi> _uyduOnbellek =
       <String, _UyduOnbellekKaydi>{};
   static const Duration _uyduOnbellekSuresi = Duration(hours: 24);
   static const String _islemKuyruguAnahtari = 'sync_pending_ops';
   static const String _sunucuVersiyonAnahtari = 'sync_server_version';
+  static int _islemSayaci = 0;
+  Future<void> _kuyrukKilidi = Future<void>.value();
+  Future<List<dynamic>?>? _aktifSenkron;
+  String sonSenkronDurumu = 'idle';
 
-  GisService() {
+  GisService({Dio? dio})
+      : _dio = dio ??
+            Dio(BaseOptions(
+              baseUrl: 'http://127.0.0.1:8000/api/v1',
+              connectTimeout: const Duration(seconds: 10),
+            )) {
     _dio.interceptors.add(
       InterceptorsWrapper(
         onRequest: (RequestOptions options, RequestInterceptorHandler handler) {
@@ -163,33 +169,72 @@ class GisService {
     return null;
   }
 
-  Future<void> islemKuyrugunaEkle(
-      String type, Map<String, dynamic> payload) async {
-    List<Map<String, dynamic>> kuyruk =
-        await _storage.readCollection(_islemKuyruguAnahtari);
-    String simdi = DateTime.now().toUtc().toIso8601String();
-    kuyruk.add(
-      <String, dynamic>{
-        'client_op_id': '${DateTime.now().microsecondsSinceEpoch}_$type',
-        'type': type,
-        'created_at': simdi,
-        'timezone_offset_min': DateTime.now().timeZoneOffset.inMinutes,
-        'timezone_name': DateTime.now().timeZoneName,
-        'payload': payload,
-      },
-    );
-    await _storage.writeCollection(_islemKuyruguAnahtari, kuyruk);
+  Future<T> _kuyruguKilitle<T>(Future<T> Function() islem) {
+    Future<void> onceki = _kuyrukKilidi;
+    Future<T> sonuc = onceki.then((_) => islem());
+    _kuyrukKilidi = sonuc.then((_) {}, onError: (_) {});
+    return sonuc;
   }
 
+  Future<List<Map<String, dynamic>>> bekleyenIslemleriGetir() =>
+      _kuyruguKilitle(() => _storage.readCollection(_islemKuyruguAnahtari));
+
+  Future<void> islemKuyrugunaEkle(
+      String type, Map<String, dynamic> payload) {
+    return _kuyruguKilitle(() async {
+      List<Map<String, dynamic>> kuyruk =
+          await _storage.readCollection(_islemKuyruguAnahtari);
+      DateTime simdi = DateTime.now();
+      _islemSayaci++;
+      kuyruk.add(
+        <String, dynamic>{
+          'client_op_id':
+              '${simdi.microsecondsSinceEpoch}_${_islemSayaci}_$type',
+          'type': type,
+          'created_at': simdi.toUtc().toIso8601String(),
+          'timezone_offset_min': simdi.timeZoneOffset.inMinutes,
+          'timezone_name': simdi.timeZoneName,
+          'payload': payload,
+        },
+      );
+      await _storage.writeCollection(_islemKuyruguAnahtari, kuyruk);
+    });
+  }
+
+  Future<void> _gonderilenIslemleriKuyruktanCikar(Set<String> opIdleri) {
+    return _kuyruguKilitle(() async {
+      List<Map<String, dynamic>> kuyruk =
+          await _storage.readCollection(_islemKuyruguAnahtari);
+      kuyruk.removeWhere((Map<String, dynamic> op) =>
+          opIdleri.contains((op['client_op_id'] ?? '').toString()));
+      await _storage.writeCollection(_islemKuyruguAnahtari, kuyruk);
+    });
+  }
+
+  /// Runs at most one sync at a time; callers arriving mid-flight wait for it
+  /// and then sync whatever was queued meanwhile.
   Future<List<dynamic>?> bekleyenIslemleriSenkronizeEt() async {
-    List<Map<String, dynamic>> kuyruk =
-        await _storage.readCollection(_islemKuyruguAnahtari);
+    while (_aktifSenkron != null) {
+      await _aktifSenkron;
+    }
+    Future<List<dynamic>?> senkron = _senkronizeEt();
+    _aktifSenkron = senkron;
+    try {
+      return await senkron;
+    } finally {
+      _aktifSenkron = null;
+    }
+  }
+
+  Future<List<dynamic>?> _senkronizeEt() async {
+    List<Map<String, dynamic>> kuyruk = await bekleyenIslemleriGetir();
     if (kuyruk.isEmpty) {
+      sonSenkronDurumu = 'idle';
       return null;
     }
-    String? versionText = await _storage.readString(_sunucuVersiyonAnahtari);
-    int? baseVersion = int.tryParse(versionText ?? '');
     for (int deneme = 0; deneme < 3; deneme++) {
+      String? versionText = await _storage.readString(_sunucuVersiyonAnahtari);
+      int? baseVersion = int.tryParse(versionText ?? '');
       try {
         Response<dynamic> response = await _dio.post(
           '/gis/sync',
@@ -210,17 +255,23 @@ class GisService {
             await _storage.saveString(
                 _sunucuVersiyonAnahtari, versionRaw.toInt().toString());
           }
-          dynamic mapRaw = response.data['map'];
-          if (status == 'ok') {
-            await _storage.writeCollection(
-                _islemKuyruguAnahtari, <Map<String, dynamic>>[]);
+          sonSenkronDurumu = status;
+          if (status == 'conflict') {
+            // Server moved ahead; retry once with the refreshed base version.
+            continue;
           }
+          await _gonderilenIslemleriKuyruktanCikar(kuyruk
+              .map((Map<String, dynamic> op) =>
+                  (op['client_op_id'] ?? '').toString())
+              .toSet());
+          dynamic mapRaw = response.data['map'];
           if (mapRaw is List) {
             return List<dynamic>.from(mapRaw);
           }
           return null;
         }
       } catch (e) {
+        sonSenkronDurumu = 'error';
         debugPrint("SENKRON HATASI (deneme ${deneme + 1}): $e");
         await Future<void>.delayed(
             Duration(milliseconds: 400 * (deneme + 1) * (deneme + 1)));

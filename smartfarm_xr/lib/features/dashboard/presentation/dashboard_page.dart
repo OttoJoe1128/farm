@@ -3,6 +3,7 @@ import 'package:latlong2/latlong.dart';
 import 'dart:typed_data';
 import 'dart:math' as math;
 import 'dart:async';
+import 'dart:convert';
 import 'widgets/harita_paneli.dart';
 import 'widgets/varlik_kutuphanesi.dart';
 import 'widgets/components/panel_components.dart';
@@ -114,15 +115,21 @@ class _DashboardPageState extends State<DashboardPage> {
     });
   }
 
+  Future<void> _islemiSenkronizeEt(
+      String type, Map<String, dynamic> payload) async {
+    await _gisService.islemKuyrugunaEkle(type, payload);
+    await _gisService.bekleyenIslemleriSenkronizeEt();
+  }
+
   Future<void> _senkronizasyonuCalistir() async {
-    if (_haritaVerisi != null && _haritaVerisi!.isNotEmpty) {
-      await _gisService.islemKuyrugunaEkle(
-        'replace_snapshot',
-        <String, dynamic>{'map': _haritaVerisi},
-      );
-    }
     List<dynamic>? senkronSonucu =
         await _gisService.bekleyenIslemleriSenkronizeEt();
+    if (_gisService.sonSenkronDurumu == 'conflict' && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text(
+              "Sunucu ile çakışma: yerel değişiklikler korunuyor, tekrar denenecek."),
+          backgroundColor: Colors.orange));
+    }
     if (senkronSonucu != null && mounted) {
       setState(() {
         _haritaVerisi = _haritaVerisiniZamanla(List<dynamic>.from(senkronSonucu));
@@ -132,7 +139,21 @@ class _DashboardPageState extends State<DashboardPage> {
       await _yerelDurumuKaydet();
     }
     List<dynamic>? sunucuVerisi = await _gisService.haritayiGetir();
-    if (sunucuVerisi != null && sunucuVerisi.isNotEmpty && mounted) {
+    bool bekleyenIslemVar =
+        (await _gisService.bekleyenIslemleriGetir()).isNotEmpty;
+    if (sunucuVerisi != null &&
+        sunucuVerisi.isEmpty &&
+        !bekleyenIslemVar &&
+        (_haritaVerisi?.isNotEmpty ?? false)) {
+      // Server has nothing yet: upload the locally created map once.
+      await _islemiSenkronizeEt(
+        'replace_snapshot',
+        <String, dynamic>{'map': _haritaVerisi},
+      );
+    } else if (sunucuVerisi != null &&
+        sunucuVerisi.isNotEmpty &&
+        !bekleyenIslemVar &&
+        mounted) {
       setState(() {
         _haritaVerisi = _haritaVerisiniZamanla(List<dynamic>.from(sunucuVerisi));
         _varlikYonetimModuAktif = true;
@@ -256,9 +277,8 @@ class _DashboardPageState extends State<DashboardPage> {
         // Araci aktif tut: kullanici ayni turde ardi ardina varlik ekleyebilsin.
         // Bitirmek icin ayni araca tekrar dokunmasi yeterli.
       });
-      _gisService.islemKuyrugunaEkle(
+      _islemiSenkronizeEt(
           'add_asset', <String, dynamic>{'asset_id': assetId, 'asset': yeniVarlik});
-      _gisService.bekleyenIslemleriSenkronizeEt();
       _yerelDurumuKaydet();
       _kpiYenile();
     }
@@ -268,6 +288,7 @@ class _DashboardPageState extends State<DashboardPage> {
     debugPrint("DB GÜNCELLEME: Index $index taşındı -> $yeniKonum");
     if (_haritaVerisi != null && index < _haritaVerisi!.length) {
       List<dynamic> guncelListe = List.from(_haritaVerisi!);
+      guncelListe[index] = jsonDecode(jsonEncode(guncelListe[index]));
       guncelListe[index]['geometry']
           ['coordinates'] = [yeniKonum.longitude, yeniKonum.latitude];
       Map<String, dynamic> mevcutOzellikler = Map<String, dynamic>.from(
@@ -282,7 +303,7 @@ class _DashboardPageState extends State<DashboardPage> {
       );
       setState(() => _haritaVerisi = guncelListe);
       String assetId = _assetIdGetir(guncelListe[index]);
-      _gisService.islemKuyrugunaEkle(
+      _islemiSenkronizeEt(
         'update_asset',
         <String, dynamic>{
           'index': index,
@@ -290,7 +311,6 @@ class _DashboardPageState extends State<DashboardPage> {
           'asset': Map<String, dynamic>.from(guncelListe[index] as Map),
         },
       );
-      _gisService.bekleyenIslemleriSenkronizeEt();
       _yerelDurumuKaydet();
       _kpiYenile();
     }
@@ -308,7 +328,7 @@ class _DashboardPageState extends State<DashboardPage> {
     guncelListe[index] = zamanlanmisVarlik;
     setState(() => _haritaVerisi = guncelListe);
     String assetId = _assetIdGetir(zamanlanmisVarlik);
-    _gisService.islemKuyrugunaEkle(
+    _islemiSenkronizeEt(
       'update_asset',
       <String, dynamic>{
         'index': index,
@@ -316,7 +336,6 @@ class _DashboardPageState extends State<DashboardPage> {
         'asset': Map<String, dynamic>.from(zamanlanmisVarlik),
       },
     );
-    _gisService.bekleyenIslemleriSenkronizeEt();
     _yerelDurumuKaydet();
     _kpiYenile();
   }
@@ -328,7 +347,7 @@ class _DashboardPageState extends State<DashboardPage> {
       dynamic silinenVarlik = guncelListe[index];
       guncelListe.removeAt(index);
       setState(() => _haritaVerisi = guncelListe);
-      _gisService.islemKuyrugunaEkle(
+      _islemiSenkronizeEt(
         'delete_asset',
         <String, dynamic>{
           'index': index,
@@ -339,7 +358,6 @@ class _DashboardPageState extends State<DashboardPage> {
               : '',
         },
       );
-      _gisService.bekleyenIslemleriSenkronizeEt();
       _yerelDurumuKaydet();
       _kpiYenile();
     }
@@ -369,14 +387,13 @@ class _DashboardPageState extends State<DashboardPage> {
       _haritaVerisi = yalnizParseller;
       _haritaKey = UniqueKey();
     });
-    _gisService.islemKuyrugunaEkle(
+    _islemiSenkronizeEt(
       'replace_snapshot',
       <String, dynamic>{
         'map': yalnizParseller,
         'bulk_deleted_at': _simdiIso(),
       },
     );
-    _gisService.bekleyenIslemleriSenkronizeEt();
     _yerelDurumuKaydet();
     _kpiYenile();
     if (!mounted) {
