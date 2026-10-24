@@ -10,7 +10,7 @@ import { SolPanel } from './components/SolPanel';
 import { SagPanel } from './components/SagPanel';
 import { ParcelFeature, CanonicalAsset, AssetType, WorkOrder, WorkOrderStatus, IoTTelemetry, FarmKpi, AuditLogEntry, LatLng } from './types';
 import { EDIRNE_PARCEL, MILAS_PARCEL, INITIAL_ASSETS, INITIAL_WORK_ORDERS } from './services/sampleData';
-import { createNewAsset, calculateLocalMeters } from './services/gisService';
+import { createNewAsset, calculateLocalMeters, areSameParcel } from './services/gisService';
 
 export const App: React.FC = () => {
   // Navigation & Panels State
@@ -96,11 +96,18 @@ export const App: React.FC = () => {
   }, [assets, workOrders, parcels]);
 
   // Handlers
-  const handleAddAsset = (type: AssetType, pos: LatLng) => {
-    if (!selectedParcel) return;
-    const newAsset = createNewAsset(type, pos, selectedParcel);
-    setAssets((prev) => [...prev, newAsset]);
+  const handleSelectParcel = (parcel: ParcelFeature) => {
+    if (!areSameParcel(selectedParcel, parcel)) {
+      setSelectedTool(null);
+      setMovingAssetId(null);
+    }
+    setSelectedParcel(parcel);
+  };
 
+  const handleAddAsset = (type: AssetType, pos: LatLng, parcel: ParcelFeature) => {
+    const newAsset = createNewAsset(type, pos, parcel);
+    setAssets((prev) => [...prev, newAsset]);
+    setSelectedParcel(parcel);
     setAuditLogs((prev) => [
       {
         at: new Date().toISOString(),
@@ -357,7 +364,7 @@ export const App: React.FC = () => {
         onTabChange={setActiveTab}
         selectedParcel={selectedParcel}
         parcels={parcels}
-        onSelectParcel={setSelectedParcel}
+        onSelectParcel={handleSelectParcel}
         satelliteMode={satelliteMode}
         onToggleSatellite={() => setSatelliteMode(!satelliteMode)}
         onUploadParcelClick={() => fileInputRef.current?.click()}
@@ -379,7 +386,7 @@ export const App: React.FC = () => {
         onErpSyncClick={handleErpSync}
         onOverviewResetClick={() => {
           const next = parcels.find((p) => p.properties.ParselNo !== selectedParcel?.properties.ParselNo) || parcels[0];
-          setSelectedParcel(next);
+          handleSelectParcel(next);
         }}
         isSolPanelOpen={isSolPanelOpen}
         onToggleSolPanel={() => setIsSolPanelOpen(!isSolPanelOpen)}
@@ -428,7 +435,7 @@ export const App: React.FC = () => {
                 movingAssetId={movingAssetId}
                 onToggleEditMode={() => setEditMode(!editMode)}
                 onStartMoveAsset={(id) => setMovingAssetId(id)}
-                onSelectParcel={(p) => setSelectedParcel(p)}
+                onSelectParcel={handleSelectParcel}
                 onSelectAsset={(a) => setSelectedAsset(a)}
                 onAddAsset={handleAddAsset}
                 onMoveAsset={handleMoveAsset}

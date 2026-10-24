@@ -7,8 +7,12 @@ import {
   calculateLocalMeters,
   snapToParcelOrGrid,
   computePolygonClippedGrid,
+  buildParcelGridCellSizes,
+  findParcelContainingPoint,
+  getParcelDimensionMeters,
+  MIN_GRID_CELL_METERS,
 } from '../services/gisService';
-import { EDIRNE_PARCEL } from '../services/sampleData';
+import { EDIRNE_PARCEL, MILAS_PARCEL } from '../services/sampleData';
 
 describe('GIS & Spatial Geometry Service Tests', () => {
   it('should accurately convert LatLng to Web Mercator meters and back', () => {
@@ -89,6 +93,32 @@ describe('GIS & Spatial Geometry Service Tests', () => {
       };
       expect(isPointInPolygon(midPoint, EDIRNE_PARCEL)).toBe(true);
     }
+  });
+
+  it('should start parcel grid sizes at 0.5 m and stay within parcel dimensions', () => {
+    const { widthMeters, heightMeters } = getParcelDimensionMeters(EDIRNE_PARCEL);
+    const sizes = buildParcelGridCellSizes(widthMeters, heightMeters);
+    expect(sizes[0]).toBe(MIN_GRID_CELL_METERS);
+    expect(sizes).toContain(1);
+    const shorter = Math.min(widthMeters, heightMeters);
+    for (const size of sizes) {
+      if (size !== MIN_GRID_CELL_METERS) {
+        expect(size).toBeLessThanOrEqual(shorter);
+      }
+    }
+  });
+
+  it('should compute 0.5 m clipped grid inside the parcel', () => {
+    const { horizontalSegments, verticalSegments } = computePolygonClippedGrid(EDIRNE_PARCEL, MIN_GRID_CELL_METERS);
+    expect(horizontalSegments.length).toBeGreaterThan(0);
+    expect(verticalSegments.length).toBeGreaterThan(0);
+  });
+
+  it('should resolve the parcel that contains a click', () => {
+    const insideEdirne = { lat: 41.62085, lng: 26.57165 };
+    expect(findParcelContainingPoint(insideEdirne, [EDIRNE_PARCEL, MILAS_PARCEL])?.properties.ParselNo).toBe('835');
+    const outside = { lat: 41.63, lng: 26.58 };
+    expect(findParcelContainingPoint(outside, [EDIRNE_PARCEL, MILAS_PARCEL])).toBeNull();
   });
 });
 

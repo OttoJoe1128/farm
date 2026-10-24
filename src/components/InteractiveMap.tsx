@@ -31,7 +31,16 @@ import {
   computePolygonClippedGrid,
   isAssetVisibleInLayers,
   calculatePolylineLengthMeters,
+  getParcelDimensionMeters,
+  buildParcelGridCellSizes,
+  findParcelContainingPoint,
+  MIN_GRID_CELL_METERS,
 } from '../services/gisService';
+
+function formatGridMeters(meters: number): string {
+  const label = Number.isInteger(meters) ? String(meters) : meters.toFixed(1).replace(/\.0$/, '');
+  return `${label}m`;
+}
 
 interface InteractiveMapProps {
   parcels: ParcelFeature[];
@@ -46,7 +55,7 @@ interface InteractiveMapProps {
   onStartMoveAsset: (assetId: string) => void;
   onSelectParcel: (parcel: ParcelFeature) => void;
   onSelectAsset: (asset: CanonicalAsset) => void;
-  onAddAsset: (type: AssetType, pos: LatLng) => void;
+  onAddAsset: (type: AssetType, pos: LatLng, parcel: ParcelFeature) => void;
   onMoveAsset: (assetId: string, newPos: LatLng) => void;
   onDeleteAsset: (assetId: string) => void;
   onClearAllAssets: () => void;
@@ -87,7 +96,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
   const [isGridVisible, setIsGridVisible] = useState<boolean>(false);
   const [isGridMenuOpen, setIsGridMenuOpen] = useState<boolean>(false);
   // User Requirement: Selectable grid resolution in meters (e.g. 2m, 3m, 5m, 10m)
-  const [gridCellSize, setGridCellSize] = useState<number>(3);
+  const [gridCellSize, setGridCellSize] = useState<number>(MIN_GRID_CELL_METERS);
   const [isToolMenuOpen, setIsToolMenuOpen] = useState<boolean>(false);
   const [isHoveringMenu, setIsHoveringMenu] = useState<boolean>(false);
 
@@ -126,15 +135,29 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
   // Dimensions & Grid Counts for the selected parcel
   const parcelDimensions = useMemo(() => {
-    if (!selectedParcel) return { widthM: 0, heightM: 0, cellsX: 0, cellsY: 0 };
-    const { widthMeters, heightMeters } = computePolygonClippedGrid(selectedParcel, gridCellSize);
+    if (!selectedParcel) {
+      return { widthM: 0, heightM: 0, cellsX: 0, cellsY: 0, gridSizes: [MIN_GRID_CELL_METERS] };
+    }
+    const { widthMeters, heightMeters } = getParcelDimensionMeters(selectedParcel);
+    const gridSizes = buildParcelGridCellSizes(widthMeters, heightMeters);
     return {
-      widthM: Math.round(widthMeters),
-      heightM: Math.round(heightMeters),
+      widthM: widthMeters,
+      heightM: heightMeters,
       cellsX: Math.max(1, Math.round(widthMeters / gridCellSize)),
       cellsY: Math.max(1, Math.round(heightMeters / gridCellSize)),
+      gridSizes,
     };
   }, [selectedParcel, gridCellSize]);
+
+  useEffect(() => {
+    if (!selectedParcel) {
+      return;
+    }
+    const { gridSizes } = parcelDimensions;
+    if (!gridSizes.includes(gridCellSize)) {
+      setGridCellSize(gridSizes[0] ?? MIN_GRID_CELL_METERS);
+    }
+  }, [selectedParcel, parcelDimensions, gridCellSize]);
 
   // 1. Initialize Leaflet Map
   useEffect(() => {
@@ -310,8 +333,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       });
 
       polygon.on('click', (e) => {
-        L.DomEvent.stopPropagation(e);
-        onSelectParcel(parcel);
+        // Harita tıklamasının parsele varlık eklemesini engelleme.
+        if (!selectedTool && !movingAssetId && !editMode) {
+          L.DomEvent.stopPropagation(e);
+          onSelectParcel(parcel);
+        }
       });
 
       const tooltipContent = `
@@ -328,7 +354,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       parcelLayerGroupRef.current?.addLayer(polygon);
     });
-  }, [parcels, selectedParcel, currentZoom, layers.cadastre]);
+  }, [parcels, selectedParcel, currentZoom, layers.cadastre, selectedTool, movingAssetId, editMode]);
 
   // 6. Global Event Delegation to intercept marker delete clicks reliably
   useEffect(() => {
@@ -684,20 +710,30 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
     const handleMapClick = (e: L.LeafletMouseEvent) => {
       const clickPos: LatLng = { lat: e.latlng.lat, lng: e.latlng.lng };
+      const hostParcel = findParcelContainingPoint(clickPos, parcels, selectedParcel);
+      const snapThreshold = Math.max(gridCellSize, MIN_GRID_CELL_METERS);
 
       // Moving existing asset
       if (movingAssetId) {
-        if (!selectedParcel) return;
+        if (!selectedParcel) {
+          showToast('İşlem için lütfen bir parsel seçin.');
+          return;
+        }
         const isInside = isPointInPolygon(clickPos, selectedParcel);
         if (!isInside) {
           showToast('Hata: Varlık parsel sınırları dışına taşınamaz!');
           return;
         }
-        const { snappedPoint, snappedTo } = snapToParcelOrGrid(clickPos, selectedParcel, 2.0, gridCellSize);
+        const { snappedPoint, snappedTo } = snapToParcelOrGrid(
+          clickPos,
+          selectedParcel,
+          snapThreshold,
+          gridCellSize
+        );
         onMoveAsset(movingAssetId, snappedPoint);
         showToast(
           snappedTo !== 'none'
-            ? `Varlık ${snappedTo === 'vertex' ? 'köşe noktasına' : `${gridCellSize}m ızgaraya`} kenetlenerek taşındı.`
+            ? `Varlık ${snappedTo === 'vertex' ? 'köşe noktasına' : `${formatGridMeters(gridCellSize)} ızgaraya`} kenetlenerek taşındı.`
             : 'Varlık yeni konuma yerleştirildi.'
         );
         return;
@@ -718,32 +754,41 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         return;
       }
 
-      // Adding new asset
+      // Adding new asset — tıklanan parselin geometrisine bağlanır
       if (selectedTool) {
-        if (!selectedParcel) {
-          showToast('İşlem için lütfen bir parsel seçin.');
+        if (!hostParcel) {
+          showToast(
+            selectedParcel
+              ? 'Uyarı: Varlıklar yalnızca parsel sınırları içine eklenebilir!'
+              : 'İşlem için lütfen bir parsel seçin.'
+          );
           return;
         }
 
         const { snappedPoint, snappedTo, distanceMeters } = snapToParcelOrGrid(
           clickPos,
-          selectedParcel,
-          2.5,
+          hostParcel,
+          snapThreshold,
           gridCellSize
         );
-        const isInside = isPointInPolygon(snappedPoint, selectedParcel);
+        const isInside = isPointInPolygon(snappedPoint, hostParcel);
         if (!isInside) {
           showToast('Uyarı: Varlıklar yalnızca parsel sınırları içine eklenebilir!');
           return;
         }
 
-        onAddAsset(selectedTool, snappedPoint);
+        onAddAsset(selectedTool, snappedPoint, hostParcel);
         if (snappedTo !== 'none') {
           setSnapMessage(
-            `📍 ${snappedTo === 'vertex' ? 'Köşeye' : `${gridCellSize}m Grid Izgaraya`} kenetlendi (${distanceMeters.toFixed(1)}m)`
+            `📍 ${snappedTo === 'vertex' ? 'Köşeye' : `${formatGridMeters(gridCellSize)} ızgaraya`} kenetlendi (${distanceMeters.toFixed(1)}m)`
           );
           setTimeout(() => setSnapMessage(null), 3500);
         }
+        return;
+      }
+
+      if (hostParcel && !editMode) {
+        onSelectParcel(hostParcel);
       }
     };
 
@@ -751,7 +796,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     return () => {
       map.off('click', handleMapClick);
     };
-  }, [selectedTool, selectedParcel, measurePoints, assets, movingAssetId, gridCellSize]);
+  }, [selectedTool, selectedParcel, parcels, measurePoints, assets, movingAssetId, gridCellSize, editMode]);
 
   // 9. Measurement Polyline
   useEffect(() => {
@@ -954,7 +999,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             title="Izgara Ayarları (Açılır Kapanır)"
           >
             <Grid className="w-4 h-4 text-emerald-400" />
-            <span>{isGridVisible ? `Izgara: ${gridCellSize}m` : 'Izgara: Kapalı'}</span>
+            <span>{isGridVisible ? `Izgara: ${formatGridMeters(gridCellSize)}` : 'Izgara: Kapalı'}</span>
             <ChevronDown className={`w-3.5 h-3.5 transition-transform duration-200 ${isGridMenuOpen ? 'rotate-180' : ''}`} />
           </button>
 
@@ -976,7 +1021,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               >
                 <div className="flex items-center gap-1.5">
                   <Grid className="w-3.5 h-3.5 text-emerald-400" />
-                  <span>{isGridVisible ? `Izgara Açık (${gridCellSize}m)` : 'Izgara Kapalı'}</span>
+                  <span>{isGridVisible ? `Izgara Açık (${formatGridMeters(gridCellSize)})` : 'Izgara Kapalı'}</span>
                 </div>
                 <span
                   className={`w-2.5 h-2.5 rounded-full ${isGridVisible ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}
@@ -987,10 +1032,12 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
               <div className="flex flex-col gap-1 pt-1 border-t border-slate-800">
                 <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono px-0.5">
                   <span>Hücre Çözünürlüğü:</span>
-                  <span className="text-emerald-400 font-bold">{gridCellSize}m × {gridCellSize}m</span>
+                  <span className="text-emerald-400 font-bold">
+                    {formatGridMeters(gridCellSize)} × {formatGridMeters(gridCellSize)}
+                  </span>
                 </div>
                 <div className="grid grid-cols-4 gap-1">
-                  {[2, 3, 5, 10].map((size) => (
+                  {parcelDimensions.gridSizes.map((size) => (
                     <button
                       key={size}
                       onClick={() => {
@@ -1005,9 +1052,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                           ? 'bg-emerald-600 border-emerald-400 text-white shadow-md'
                           : 'bg-slate-800/90 border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700'
                       }`}
-                      title={`${size} metre x ${size} metre parsel içi ızgara`}
+                      title={`${formatGridMeters(size)} × ${formatGridMeters(size)} parsel içi ızgara`}
                     >
-                      {size}m
+                      {formatGridMeters(size)}
                     </button>
                   ))}
                 </div>
@@ -1019,7 +1066,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                       {selectedParcel.properties.name || `Parsel ${selectedParcel.properties.ParselNo}`}
                     </div>
                     <div className="text-sky-300">
-                      Boyut: ~{parcelDimensions.widthM}m × ~{parcelDimensions.heightM}m
+                      Boyut: {parcelDimensions.widthM.toFixed(1)}m × {parcelDimensions.heightM.toFixed(1)}m
                     </div>
                     <div className="text-emerald-400/90">
                       Grid: ~{parcelDimensions.cellsX} × ~{parcelDimensions.cellsY} hücre
@@ -1044,15 +1091,23 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
         <div className="relative">
           {/* Main Menu Trigger Button */}
           <button
-            onClick={() => setIsToolMenuOpen(!isToolMenuOpen)}
+            onClick={() => {
+              if (!selectedParcel) {
+                showToast('Varlık eklemek için önce bir parsel seçin.');
+                return;
+              }
+              setIsToolMenuOpen(!isToolMenuOpen);
+            }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold shadow-2xl transition-all cursor-pointer border backdrop-blur-xl ${
-              editMode
+              !selectedParcel
+                ? 'bg-slate-900/70 text-slate-500 border-slate-800 cursor-not-allowed'
+                : editMode
                 ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 border-amber-300 shadow-amber-500/40'
                 : selectedTool
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-400 shadow-emerald-600/40 animate-pulse'
                 : 'bg-slate-900/90 hover:bg-slate-800 text-slate-100 border-slate-700'
             }`}
-            title="Varlık Ekle ve Harita Düzenleme Menüsü"
+            title={selectedParcel ? 'Varlık Ekle ve Harita Düzenleme Menüsü' : 'Önce parsel seçin'}
           >
             {editMode ? (
               <>
@@ -1074,7 +1129,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
           </button>
 
           {/* Dropdown Menu (Opened on Click or Hover) */}
-          {(isToolMenuOpen || isHoveringMenu) && (
+          {selectedParcel && (isToolMenuOpen || isHoveringMenu) && (
             <div className="absolute right-0 top-full mt-2 w-76 bg-slate-900/95 backdrop-blur-2xl border border-slate-700 rounded-2xl shadow-2xl p-2.5 flex flex-col gap-2 z-30 animate-in fade-in slide-in-from-top-2 duration-150">
               {/* Düzenleme Modu (Taşı / Sil) Toggle Button */}
               <button
@@ -1168,7 +1223,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
       {selectedTool && (
         <div className="absolute top-16 right-4 z-20 flex items-center gap-2.5 px-3.5 py-2 bg-emerald-950/95 border border-emerald-500/70 text-emerald-200 text-xs font-medium rounded-xl shadow-2xl backdrop-blur-md animate-in fade-in duration-200">
           <span>
-            📍 <strong>{activeToolObj?.label}</strong> ekleme modu aktif ({gridCellSize}m snap). Parsel içine tıklayın.
+            📍 <strong>{activeToolObj?.label}</strong> ekleme modu aktif ({formatGridMeters(gridCellSize)} snap). Parsel içine tıklayın.
           </span>
           <button
             onClick={() => onSelectTool?.(null)}
@@ -1330,11 +1385,11 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
             className={`w-2 h-2 rounded-full ${currentZoom >= 17.5 ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`}
           />
           <span className="font-semibold text-emerald-400">
-            {currentZoom >= 17.5 ? `${gridCellSize}m Grid CAD Modu` : 'Genel Görünüm'} (Z: {currentZoom.toFixed(1)})
+            {currentZoom >= 17.5 ? `${formatGridMeters(gridCellSize)} Grid CAD Modu` : 'Genel Görünüm'} (Z: {currentZoom.toFixed(1)})
           </span>
         </div>
         <span className="text-slate-600">·</span>
-        <span>Snap: {gridCellSize}.0m Izgara / 2.5m Köşe</span>
+        <span>Snap: {formatGridMeters(gridCellSize)} Izgara / {formatGridMeters(Math.max(gridCellSize, MIN_GRID_CELL_METERS))} Köşe</span>
         {mouseMeterPos && (
           <>
             <span className="text-slate-600">·</span>

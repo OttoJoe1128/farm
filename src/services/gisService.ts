@@ -1,6 +1,9 @@
 import { LatLng, CanonicalAsset, ParcelFeature, AssetType, LayerVisibilityState } from '../types';
 
 const EARTH_RADIUS_METERS = 6378137.0;
+export const MIN_GRID_CELL_METERS = 0.5;
+const GRID_CELL_SIZE_CANDIDATES: number[] = [0.5, 1, 2, 2.5, 5, 10, 20, 25, 50];
+const MAX_GRID_SCAN_LINES = 2000;
 
 /**
  * Converts Latitude and Longitude to Web Mercator meters (EPSG:3857)
@@ -156,7 +159,7 @@ export function snapToParcelOrGrid(
 
   // Snap to grid in Web Mercator meters
   const [x, y] = latLonToMeters(targetPoint.lat, targetPoint.lng);
-  const GRID_SIZE = gridCellSize > 0 ? gridCellSize : 2.0;
+  const GRID_SIZE = gridCellSize > 0 ? gridCellSize : MIN_GRID_CELL_METERS;
   const snappedX = Math.round(x / GRID_SIZE) * GRID_SIZE;
   const snappedY = Math.round(y / GRID_SIZE) * GRID_SIZE;
   const [gridLat, gridLng] = metersToLatLon(snappedX, snappedY);
@@ -289,7 +292,7 @@ export function computePolygonClippedGrid(
       });
     }
     latIndex++;
-    if (latIndex > 600) break;
+    if (latIndex > MAX_GRID_SCAN_LINES) break;
   }
 
   // Vertical scan lines (constant longitude X)
@@ -320,7 +323,7 @@ export function computePolygonClippedGrid(
       });
     }
     lngIndex++;
-    if (lngIndex > 600) break;
+    if (lngIndex > MAX_GRID_SCAN_LINES) break;
   }
 
   return {
@@ -330,6 +333,67 @@ export function computePolygonClippedGrid(
     heightMeters,
     origin: { lat: minLat, lng: minLng },
   };
+}
+
+/**
+ * Parcel bounding-box width/height in meters (Haversine, independent of cell size).
+ */
+export function getParcelDimensionMeters(parcel: ParcelFeature): {
+  widthMeters: number;
+  heightMeters: number;
+} {
+  const { widthMeters, heightMeters } = computePolygonClippedGrid(parcel, Number.MAX_SAFE_INTEGER);
+  return { widthMeters, heightMeters };
+}
+
+/**
+ * Grid cell sizes starting at 0.5 m, clipped to the parcel's real shorter edge.
+ */
+export function buildParcelGridCellSizes(widthMeters: number, heightMeters: number): number[] {
+  const width = Math.max(0, widthMeters);
+  const height = Math.max(0, heightMeters);
+  const shorter = Math.min(width, height);
+  const longer = Math.max(width, height);
+  const sizes: number[] = [];
+  for (const size of GRID_CELL_SIZE_CANDIDATES) {
+    if (size < MIN_GRID_CELL_METERS) {
+      continue;
+    }
+    if (size !== MIN_GRID_CELL_METERS && shorter > 0 && size > shorter) {
+      continue;
+    }
+    if (longer > 0 && longer / size > MAX_GRID_SCAN_LINES) {
+      continue;
+    }
+    sizes.push(size);
+  }
+  if (!sizes.includes(MIN_GRID_CELL_METERS)) {
+    sizes.unshift(MIN_GRID_CELL_METERS);
+  }
+  return sizes;
+}
+
+export function areSameParcel(a: ParcelFeature | null | undefined, b: ParcelFeature | null | undefined): boolean {
+  if (!a || !b) {
+    return a === b;
+  }
+  return a.properties.ParselNo === b.properties.ParselNo && a.properties.Ada === b.properties.Ada;
+}
+
+export function findParcelContainingPoint(
+  point: LatLng,
+  parcels: ParcelFeature[],
+  preferred?: ParcelFeature | null
+): ParcelFeature | null {
+  if (preferred && isPointInPolygon(point, preferred)) {
+    return preferred;
+  }
+  for (const parcel of parcels) {
+    if (isPointInPolygon(point, parcel)) {
+      return parcel;
+    }
+  }
+  return null;
 }
 
 /**
