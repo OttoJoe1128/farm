@@ -12,12 +12,38 @@ import main as app_module  # noqa: E402
 DEFAULT_PASSWORD = "Secret123!"
 
 
+TEST_STORAGE_BACKEND = os.getenv("TEST_STORAGE_BACKEND", "json")
+_postgis_storage = None
+
+
+def _test_storage():
+    global _postgis_storage
+    if TEST_STORAGE_BACKEND != "postgis":
+        return app_module.storage
+    if _postgis_storage is None:
+        from services.storage import PostgisStorage
+
+        _postgis_storage = PostgisStorage(os.environ["TEST_DATABASE_URL"])
+    _postgis_storage.truncate_all()
+    return _postgis_storage
+
+
+def pytest_collection_modifyitems(config, items):
+    if TEST_STORAGE_BACKEND == "json":
+        return
+    skip = pytest.mark.skip(reason="exercises JSON files directly")
+    for item in items:
+        if "json_only" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
     work_dir = tmp_path / "work"
     work_dir.mkdir()
     monkeypatch.setattr(app_module, "DB_FILE", str(work_dir / "digital_twin_db.json"))
     monkeypatch.setattr(app_module, "USERS_FILE", str(work_dir / "users_db.json"))
+    monkeypatch.setattr(app_module, "storage", _test_storage())
     monkeypatch.chdir(work_dir)
     app_module.live_websocket_clients.clear()
     yield work_dir

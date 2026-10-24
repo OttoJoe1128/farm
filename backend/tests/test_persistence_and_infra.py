@@ -14,6 +14,7 @@ def test_health_endpoint(client):
     assert response.json()["status"] == "ok"
 
 
+@pytest.mark.json_only
 def test_json_write_is_atomic_and_leaves_no_temp_files(data_dir):
     target = os.path.join(str(data_dir), "file.json")
     app_module._write_json_file(target, {"a": 1})
@@ -22,6 +23,7 @@ def test_json_write_is_atomic_and_leaves_no_temp_files(data_dir):
     assert os.listdir(str(data_dir)) == ["file.json"]
 
 
+@pytest.mark.json_only
 def test_corrupt_db_is_not_silently_overwritten(client, headers, data_dir):
     with open(app_module.DB_FILE, "w", encoding="utf-8") as fh:
         fh.write("{corrupt")

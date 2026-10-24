@@ -77,6 +77,16 @@ Ortam değişkenleri: `SECRET_KEY` (production'da zorunlu), `ENVIRONMENT`, `CORS
 `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` (admin hesabı yalnızca bunlarla oluşturulur),
 `DB_FILE`, `USERS_FILE`, `UPLOAD_DIR`, `MAX_UPLOAD_BYTES`.
 
+Depolama: `STORAGE_BACKEND=json` (varsayılan, `DB_FILE`/`USERS_FILE`) veya `STORAGE_BACKEND=postgis` + `DATABASE_URL`
+(PostgreSQL + PostGIS; tablolar ilk açılışta oluşturulur, varlık geometrileri GIST indeksli `sf_assets` tablosunda).
+Mevcut JSON verisini taşımak için: `cd backend && DATABASE_URL=... python -m services.storage --db-file ... --users-file ...`.
+Docker'da PostGIS: `STORAGE_BACKEND=postgis POSTGRES_PASSWORD=... docker compose --profile postgis up`.
+Testleri PostGIS'e karşı çalıştırmak: `TEST_STORAGE_BACKEND=postgis TEST_DATABASE_URL=postgresql://... pytest`.
+
+Varlık kataloğu: `GET /api/v1/catalog/asset-types` (tipler, ikon/renk, geometri tipleri, form şeması),
+`PUT|DELETE /api/v1/catalog/asset-types/{id}` (admin, özel tip/override), `POST /api/v1/catalog/validate`
+(form değerlerini şemaya göre doğrular). Görünür alandaki varlıklar: `GET /api/v1/gis/assets/in-bbox`.
+
 Canlı akış: `ws://<host>:8000/ws/live`; bağlandıktan sonra ilk mesaj `{"type": "auth", "token": "<access_token>"}` olmalı (10 sn içinde). Sadece kullanıcının kendi olayları gönderilir.
 
 Docker: `SECRET_KEY` tanımlanmadan `docker compose up` çalışmaz; veri eskisi gibi `./backend` altında kalır.
