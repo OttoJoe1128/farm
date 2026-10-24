@@ -18,7 +18,7 @@ Aşağıdaki komutları **sırayla** uygula. Backend bir terminalde açık kalac
 | Sıra | Ne yapıyorsun | Komutlar |
 |------|----------------|----------|
 | **1** | Repo güncelle | `cd ~/farm` → `git pull origin main` |
-| **2** | Backend venv (ilk sefer) | `cd ~/farm/backend` → `python3 -m venv .venv` → `.venv/bin/pip install -r requirements-backend.txt` |
+| **2** | Backend venv (ilk sefer) | `cd ~/farm/backend` → `python3 -m venv .venv` → `.venv/bin/pip install -r requirements.txt` |
 | **3** | Backend’i başlat **(bu terminal açık kalsın)** | `cd ~/farm/backend` → `./start.sh` |
 | **4** | **Yeni terminal** aç; Android PATH | `export ANDROID_HOME=$HOME/Android/Sdk` → `export PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH` |
 | **5** | Emülatörü başlat | `emulator -avd Pixel_34 -no-snapshot-load &` (AVD adı farklıysa `emulator -list-avds` ile bak) |
@@ -61,16 +61,9 @@ source .venv/bin/activate   # Linux/macOS
 
 ### 1b. Bağımlılıkları yükle
 
-**Seçenek A – Minimal (sadece API/auth):**
-
-```bash
-pip install -r requirements-backend.txt
-```
-
-**Seçenek B – Projedeki tam liste (GIS vb. dahil):**
-
 ```bash
 pip install -r requirements.txt
+# testler icin: pip install -r requirements-dev.txt
 ```
 
 ### 1c. Backend’i başlat

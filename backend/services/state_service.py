@@ -5,7 +5,7 @@ from typing import Any, Dict
 
 
 def utc_now_iso() -> str:
-    return datetime.datetime.utcnow().isoformat()
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 def bump_state_version(user_state: Dict[str, Any]) -> Dict[str, Any]:

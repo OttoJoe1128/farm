@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:web_socket_channel/web_socket_channel.dart';
+import 'auth_service.dart';
 
 class LiveEventService {
   WebSocketChannel? _channel;
@@ -8,9 +9,13 @@ class LiveEventService {
 
   Stream<Map<String, dynamic>> baglan() {
     _controller ??= StreamController<Map<String, dynamic>>.broadcast();
-    _channel ??= WebSocketChannel.connect(
-      Uri.parse('ws://127.0.0.1:8000/ws/live'),
-    );
+    if (_channel == null) {
+      _channel = WebSocketChannel.connect(Uri.parse('ws://127.0.0.1:8000/ws/live'));
+      _channel!.sink.add(jsonEncode(<String, dynamic>{
+        'type': 'auth',
+        'token': AuthService.instance.accessToken ?? '',
+      }));
+    }
     _channel!.stream.listen(
       (dynamic event) {
         if (_controller == null) {

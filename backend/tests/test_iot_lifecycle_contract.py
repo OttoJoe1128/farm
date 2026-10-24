@@ -104,7 +104,7 @@ class IoTLifecycleContractTests(unittest.TestCase):
             ensured: dict = dict(asset)
             ensured["properties"] = dict(ensured.get("properties", {}))
             return ensured
-        async def broadcast_live_event(_: dict) -> None:
+        async def broadcast_live_event(_: dict, user_id: str = "") -> None:
             return None
         def iso_now_utc() -> str:
             return "2026-03-16T00:00:00Z"
@@ -119,6 +119,7 @@ class IoTLifecycleContractTests(unittest.TestCase):
                 with_meta=self._with_meta,
                 api_error=self._api_error,
                 broadcast_live_event=broadcast_live_event,
+                authenticate_websocket=lambda _token: test_user,
                 iso_now_utc=iso_now_utc,
                 live_websocket_clients=[],
                 ws_heartbeat_timeout_seconds=45,

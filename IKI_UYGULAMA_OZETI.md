@@ -58,7 +58,7 @@ Ofis kullanıcıları, planlama ve yönetim – masaüstü tarayıcıda çalış
 
 **Ne işe yarar?**  
 - **API:** Saha uygulaması ve XR paneli veriyi buradan alır/gönderir.  
-- **Admin paneli:** `/admin/login` – kullanıcı/yetki ve sistem yönetimi.  
+- **Admin:** `GET /api/v1/admin/farms` (admin rolü `DEFAULT_ADMIN_EMAIL`/`DEFAULT_ADMIN_PASSWORD` ile oluşturulur).  
 - **XR web uygulaması:** Build edilmiş Flutter web dosyalarını sunar (tek port).
 
 **Özet cümle (sunumda):**  

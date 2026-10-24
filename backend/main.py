@@ -10,11 +10,16 @@ import base64
 import datetime
 import hashlib
 import hmac
+import logging
+import re
+import tempfile
+import threading
 import uuid
 import requests
 import cv2
 import numpy as np
 import jwt
+import bcrypt
 from io import BytesIO
 from PIL import Image
 from shapely.geometry import shape, Point
@@ -41,18 +46,33 @@ try:
 except ImportError:
     deepforest_main = None
 
+logger = logging.getLogger("smartfarm")
+
 app = FastAPI()
+
+def _cors_settings(raw_origins: str) -> Tuple[List[str], bool]:
+    origins: List[str] = [origin.strip() for origin in raw_origins.split(",") if origin.strip() != ""]
+    if origins == [] or "*" in origins:
+        return ["*"], False
+    return origins, True
+
+
+CORS_ORIGINS, CORS_ALLOW_CREDENTIALS = _cors_settings(os.getenv("CORS_ORIGINS", "*"))
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-DB_FILE = "digital_twin_db.json"
-USERS_FILE = "users_db.json"
+DB_FILE = os.getenv("DB_FILE", "digital_twin_db.json")
+USERS_FILE = os.getenv("USERS_FILE", "users_db.json")
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
+DEV_JWT_SECRET = "smartfarm-dev-secret-change-this"
+_db_lock = threading.RLock()
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN", "")
 MAX_IMAGE_DIMENSION = 1200
 ESRI_EXPORT_URL = os.getenv(
@@ -85,7 +105,19 @@ DEFAULT_FREE_XYZ_TEMPLATES: List[str] = [
 provider_metadata_cache: Dict[str, Dict[str, Any]] = {}
 mapbox_runtime_disabled: bool = False
 live_websocket_clients: List[WebSocket] = []
-JWT_SECRET = os.getenv("SECRET_KEY", "smartfarm-dev-secret-change-this")
+
+
+def _resolve_jwt_secret(env: Any) -> str:
+    secret: str = str(env.get("SECRET_KEY", "") or "").strip()
+    if secret != "":
+        return secret
+    if str(env.get("ENVIRONMENT", "development")).strip().lower() == "production":
+        raise RuntimeError("SECRET_KEY production ortaminda zorunludur.")
+    logger.warning("SECRET_KEY tanimli degil; gelistirme anahtari kullaniliyor.")
+    return DEV_JWT_SECRET
+
+
+JWT_SECRET = _resolve_jwt_secret(os.environ)
 JWT_ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "14"))
@@ -1134,17 +1166,29 @@ def detect_simple_structure_candidates(image_rgba_np: np.ndarray) -> List[List[T
     return candidates
 
 def _read_json_file(path: str, default_value: Any) -> Any:
-    if not os.path.exists(path):
-        return default_value
-    try:
+    with _db_lock:
+        if not os.path.exists(path):
+            return default_value
         with open(path, "r", encoding="utf-8") as file_obj:
-            return json.load(file_obj)
-    except Exception:
-        return default_value
+            try:
+                return json.load(file_obj)
+            except json.JSONDecodeError as decode_error:
+                raise RuntimeError(f"Veri dosyasi bozuk: {path}") from decode_error
 
 def _write_json_file(path: str, payload: Any) -> None:
-    with open(path, "w", encoding="utf-8") as file_obj:
-        json.dump(payload, file_obj, ensure_ascii=False)
+    target_dir: str = os.path.dirname(os.path.abspath(path))
+    with _db_lock:
+        fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix=".tmp_", suffix=".json")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as file_obj:
+                json.dump(payload, file_obj, ensure_ascii=False)
+                file_obj.flush()
+                os.fsync(file_obj.fileno())
+            os.replace(temp_path, path)
+        except BaseException:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
 
 def load_users_db() -> Dict[str, Any]:
     raw_data: Any = _read_json_file(USERS_FILE, {"users": []})
@@ -1158,9 +1202,27 @@ def load_users_db() -> Dict[str, Any]:
 def save_users_db(payload: Dict[str, Any]) -> None:
     _write_json_file(USERS_FILE, payload)
 
-def _hash_password(password: str, salt: str) -> str:
-    hash_input: str = f"{salt}:{password}"
-    return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
+def _password_bytes(password: str) -> bytes:
+    # Pre-hash so bcrypt's 72-byte input limit never truncates long passwords.
+    return base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
+
+def _hash_password(password: str) -> str:
+    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
+
+def _legacy_sha256_hash(password: str, salt: str) -> str:
+    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
+
+def _verify_password(user: Dict[str, Any], password: str) -> Tuple[bool, bool]:
+    """Returns (is_valid, needs_rehash)."""
+    stored_hash: str = str(user.get("password_hash", ""))
+    if stored_hash.startswith("$2"):
+        try:
+            return bcrypt.checkpw(_password_bytes(password), stored_hash.encode("utf-8")), False
+        except ValueError:
+            return False, False
+    salt: str = str(user.get("password_salt", ""))
+    is_valid: bool = stored_hash != "" and hmac.compare_digest(stored_hash, _legacy_sha256_hash(password, salt))
+    return is_valid, is_valid
 
 def _build_user_response(user: Dict[str, Any]) -> Dict[str, Any]:
     return {
@@ -1217,8 +1279,8 @@ def _create_auth_payload(user: Dict[str, Any]) -> Dict[str, Any]:
 def _decode_token(token: str, expected_type: str) -> Dict[str, Any]:
     try:
         payload: Dict[str, Any] = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
-    except Exception as decode_error:
-        raise HTTPException(status_code=401, detail=f"Gecersiz token: {decode_error}")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=401, detail="Gecersiz token.")
     token_type: str = str(payload.get("type", ""))
     if token_type != expected_type:
         raise HTTPException(status_code=401, detail="Token tipi gecersiz.")
@@ -1227,23 +1289,31 @@ def _decode_token(token: str, expected_type: str) -> Dict[str, Any]:
 def ensure_default_admin() -> None:
     if DEFAULT_ADMIN_EMAIL.strip() == "" or DEFAULT_ADMIN_PASSWORD.strip() == "":
         return
-    users_db: Dict[str, Any] = load_users_db()
-    for user in users_db["users"]:
-        if str(user.get("email", "")).lower() == DEFAULT_ADMIN_EMAIL.lower():
-            return
-    salt: str = uuid.uuid4().hex
-    users_db["users"].append(
-        {
-            "id": uuid.uuid4().hex,
-            "email": DEFAULT_ADMIN_EMAIL.strip().lower(),
-            "username": DEFAULT_ADMIN_USERNAME.strip(),
-            "password_salt": salt,
-            "password_hash": _hash_password(DEFAULT_ADMIN_PASSWORD, salt),
-            "role": "admin",
-            "created_at": datetime.datetime.utcnow().isoformat(),
-        }
-    )
-    save_users_db(users_db)
+    with _db_lock:
+        users_db: Dict[str, Any] = load_users_db()
+        for user in users_db["users"]:
+            if str(user.get("email", "")).lower() == DEFAULT_ADMIN_EMAIL.strip().lower():
+                return
+        users_db["users"].append(
+            {
+                "id": uuid.uuid4().hex,
+                "email": DEFAULT_ADMIN_EMAIL.strip().lower(),
+                "username": DEFAULT_ADMIN_USERNAME.strip(),
+                "password_hash": _hash_password(DEFAULT_ADMIN_PASSWORD),
+                "role": "admin",
+                "created_at": iso_now_utc(),
+            }
+        )
+        save_users_db(users_db)
+
+def _authenticate_ws_token(token: Optional[str]) -> Optional[Dict[str, Any]]:
+    if token is None or str(token).strip() == "":
+        return None
+    try:
+        payload: Dict[str, Any] = _decode_token(str(token), "access")
+    except HTTPException:
+        return None
+    return _find_user_by_id(str(payload.get("sub", "")))
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
@@ -1289,15 +1359,21 @@ def _empty_user_state() -> Dict[str, Any]:
     }
 
 def get_user_state(user_id: str) -> Dict[str, Any]:
-    db_data: Dict[str, Any] = load_db()
-    users_bucket: Dict[str, Any] = db_data["users"]
-    if user_id not in users_bucket or not isinstance(users_bucket[user_id], dict):
-        users_bucket[user_id] = _empty_user_state()
-        save_db(db_data)
-    user_state: Dict[str, Any] = users_bucket[user_id]
-    if not isinstance(user_state.get("map"), list):
-        user_state["map"] = []
-    user_state["map"] = canonicalize_map_items(user_state["map"])
+    with _db_lock:
+        db_data: Dict[str, Any] = load_db()
+        users_bucket: Dict[str, Any] = db_data["users"]
+        needs_save: bool = False
+        if user_id not in users_bucket or not isinstance(users_bucket[user_id], dict):
+            users_bucket[user_id] = _empty_user_state()
+            needs_save = True
+        user_state: Dict[str, Any] = users_bucket[user_id]
+        if not isinstance(user_state.get("map"), list):
+            user_state["map"] = []
+        if any(isinstance(item, dict) and not item.get("asset_id") for item in user_state["map"]):
+            needs_save = True
+        user_state["map"] = canonicalize_map_items(user_state["map"])
+        if needs_save:
+            save_db(db_data)
     if not isinstance(user_state.get("processed_op_ids"), list):
         user_state["processed_op_ids"] = []
     if not isinstance(user_state.get("work_orders"), list):
@@ -1315,11 +1391,12 @@ def get_user_state(user_id: str) -> Dict[str, Any]:
     return user_state
 
 def save_user_state(user_id: str, user_state: Dict[str, Any]) -> None:
-    db_data: Dict[str, Any] = load_db()
-    if "users" not in db_data or not isinstance(db_data["users"], dict):
-        db_data["users"] = {}
-    db_data["users"][user_id] = user_state
-    save_db(db_data)
+    with _db_lock:
+        db_data: Dict[str, Any] = load_db()
+        if "users" not in db_data or not isinstance(db_data["users"], dict):
+            db_data["users"] = {}
+        db_data["users"][user_id] = user_state
+        save_db(db_data)
 
 def _touch_user_state(user_state: Dict[str, Any]) -> None:
     bump_state_version(user_state)
@@ -1376,11 +1453,13 @@ def _build_fault_log_entry(request: FaultLogCreateRequest, current_user: Dict[st
     }
 
 
-async def _broadcast_live_event(event_payload: Dict[str, Any]) -> None:
+async def _broadcast_live_event(event_payload: Dict[str, Any], user_id: str) -> None:
     if len(live_websocket_clients) == 0:
         return
     disconnected: List[WebSocket] = []
-    for client in live_websocket_clients:
+    for client in list(live_websocket_clients):
+        if str(getattr(client.state, "user_id", "")) != str(user_id):
+            continue
         try:
             await client.send_json(event_payload)
         except Exception:
@@ -1391,6 +1470,11 @@ async def _broadcast_live_event(event_payload: Dict[str, Any]) -> None:
                 live_websocket_clients.remove(dead_client)
 
 ensure_default_admin()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok", "api_version": API_CONTRACT_VERSION, "at": iso_now_utc()}
 
 app.include_router(
     create_fault_router(
@@ -1432,6 +1516,7 @@ app.include_router(
         with_meta=_with_meta,
         api_error=_api_error,
         broadcast_live_event=_broadcast_live_event,
+        authenticate_websocket=_authenticate_ws_token,
         iso_now_utc=iso_now_utc,
         live_websocket_clients=live_websocket_clients,
         ws_heartbeat_timeout_seconds=WS_HEARTBEAT_TIMEOUT_SECONDS,
@@ -1446,22 +1531,21 @@ def register(request: RegisterRequest):
     password_text: str = request.password.strip()
     if email_text == "" or username_text == "" or password_text == "":
         raise HTTPException(status_code=400, detail="Email, kullanici adi ve sifre zorunlu.")
-    if _find_user_by_email(email_text) is not None:
-        raise HTTPException(status_code=409, detail="Bu email zaten kayitli.")
-    users_db: Dict[str, Any] = load_users_db()
-    is_first_user: bool = len(users_db["users"]) == 0
-    salt: str = uuid.uuid4().hex
-    user_record: Dict[str, Any] = {
-        "id": uuid.uuid4().hex,
-        "email": email_text,
-        "username": username_text,
-        "password_salt": salt,
-        "password_hash": _hash_password(password_text, salt),
-        "role": "admin" if is_first_user else "user",
-        "created_at": datetime.datetime.utcnow().isoformat(),
-    }
-    users_db["users"].append(user_record)
-    save_users_db(users_db)
+    password_hash: str = _hash_password(password_text)
+    with _db_lock:
+        if _find_user_by_email(email_text) is not None:
+            raise HTTPException(status_code=409, detail="Bu email zaten kayitli.")
+        users_db: Dict[str, Any] = load_users_db()
+        user_record: Dict[str, Any] = {
+            "id": uuid.uuid4().hex,
+            "email": email_text,
+            "username": username_text,
+            "password_hash": password_hash,
+            "role": "user",
+            "created_at": iso_now_utc(),
+        }
+        users_db["users"].append(user_record)
+        save_users_db(users_db)
     return _create_auth_payload(user_record)
 
 @app.post("/api/v1/auth/login")
@@ -1469,13 +1553,22 @@ def login(request: LoginRequest):
     email_text: str = request.email.strip().lower()
     password_text: str = request.password.strip()
     user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Kullanici bulunamadi.")
-    expected_hash: str = str(user.get("password_hash", ""))
-    salt: str = str(user.get("password_salt", ""))
-    if not hmac.compare_digest(expected_hash, _hash_password(password_text, salt)):
-        raise HTTPException(status_code=401, detail="Sifre hatali.")
+    is_valid, needs_rehash = _verify_password(user or {}, password_text)
+    if user is None or not is_valid:
+        raise HTTPException(status_code=401, detail="Email veya sifre hatali.")
+    if needs_rehash:
+        _upgrade_password_hash(str(user.get("id")), password_text)
     return _create_auth_payload(user)
+
+def _upgrade_password_hash(user_id: str, password: str) -> None:
+    new_hash: str = _hash_password(password)
+    with _db_lock:
+        users_db: Dict[str, Any] = load_users_db()
+        for stored_user in users_db["users"]:
+            if str(stored_user.get("id")) == user_id:
+                stored_user["password_hash"] = new_hash
+                stored_user.pop("password_salt", None)
+        save_users_db(users_db)
 
 @app.post("/api/v1/auth/refresh")
 def refresh_token(request: RefreshRequest):
@@ -1582,25 +1675,52 @@ def reset_map(current_user: Dict[str, Any] = Depends(get_current_user)):
     save_user_state(str(current_user["id"]), user_state)
     return _with_meta({"status": "cleared"}, current_user)
 
+def _safe_upload_name(raw_name: Optional[str], fallback: str) -> str:
+    base_name: str = os.path.basename(str(raw_name or "").replace("\\", "/"))
+    cleaned: str = re.sub(r"[^A-Za-z0-9._-]", "_", base_name).lstrip(".")[:120]
+    return cleaned or fallback
+
+
+async def _read_upload_limited(file: UploadFile) -> bytes:
+    content: bytes = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(content) > MAX_UPLOAD_BYTES:
+        _api_error(
+            status_code=413,
+            error_code="file_too_large",
+            message="Dosya boyutu siniri asildi.",
+            details={"max_bytes": MAX_UPLOAD_BYTES},
+        )
+    return content
+
+
 @app.post("/api/v1/gis/upload-map")
 async def upload_map(
     file: UploadFile = File(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    temp_path: str = f"temp_upload_{file.filename}"
+    content: bytes = await _read_upload_limited(file)
     try:
-        with open(temp_path, "wb") as temp_file:
-            temp_file.write(await file.read())
+        import geopandas as gpd
+    except ImportError:
+        _api_error(
+            status_code=503,
+            error_code="dependency_missing",
+            message="Harita yukleme icin geopandas kurulu degil.",
+        )
+    extension: str = os.path.splitext(_safe_upload_name(file.filename, "upload.geojson"))[1]
+    fd, temp_path = tempfile.mkstemp(prefix="smartfarm_upload_", suffix=extension)
+    try:
+        with os.fdopen(fd, "wb") as temp_file:
+            temp_file.write(content)
         gdf = None
         try:
-            import geopandas as gpd
             gdf = gpd.read_file(temp_path)
-        except Exception as e:
+        except Exception:
+            logger.exception("Harita dosyasi okunamadi")
             _api_error(
                 status_code=400,
                 error_code="validation_error",
                 message="Dosya okunamadi.",
-                details={"error": str(e)},
             )
         if gdf is None or gdf.empty:
             _api_error(
@@ -1694,12 +1814,12 @@ async def upload_photo(
 ):
     user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
     media_files: List[Dict[str, Any]] = list(user_state.get("media_files", []))
-    saved_file_name: str = f"{uuid.uuid4().hex}_{str(file.filename or 'photo.jpg')}"
-    upload_dir: str = "uploads"
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path: str = os.path.join(upload_dir, saved_file_name)
+    content: bytes = await _read_upload_limited(file)
+    saved_file_name: str = f"{uuid.uuid4().hex}_{_safe_upload_name(file.filename, 'photo.jpg')}"
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    file_path: str = os.path.join(UPLOAD_DIR, saved_file_name)
     with open(file_path, "wb") as output_file:
-        output_file.write(await file.read())
+        output_file.write(content)
     photo_url: str = f"/uploads/{saved_file_name}"
     media_files.append(
         {
@@ -2094,7 +2214,6 @@ def fetch_satellite_image(
             status_code=500,
             error_code="unexpected_error",
             message="Uydu gorseli alinirken hata olustu.",
-            details={"error": str(e)},
         )
 
 # --- 🔥 DERİN ÖĞRENME ANALİZİ 🔥 ---
@@ -2214,7 +2333,6 @@ def analyze_satellite(
             status_code=500,
             error_code="unexpected_error",
             message="Uydu analizinde beklenmeyen hata olustu.",
-            details={"error": str(e)},
         )
 
 @app.get("/api/v1/admin/farms")
@@ -2235,9 +2353,10 @@ def admin_farms(_: Dict[str, Any] = Depends(require_admin)):
         for item in map_data:
             if not isinstance(item, dict):
                 continue
-            geometry_obj: Any = item.get("geometry", {})
+            geometry_obj: Dict[str, Any] = item.get("geometry") or {}
             geometry_type: str = str(geometry_obj.get("type", ""))
-            is_asset_polygon: bool = str(item.get("properties", {}).get("asset_type", "")) == "yapi_polygon"
+            item_props: Dict[str, Any] = item.get("properties") or {}
+            is_asset_polygon: bool = str(item_props.get("asset_type", "")) == "yapi_polygon"
             if geometry_type in ["Polygon", "MultiPolygon"]:
                 if is_asset_polygon:
                     asset_count += 1
