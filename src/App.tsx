@@ -116,23 +116,31 @@ export const App: React.FC = () => {
       prev.map((a) => {
         if (a.asset_id !== assetId) return a;
         const local = selectedParcel ? calculateLocalMeters(newPos, selectedParcel) : { local_x_m: 0, local_y_m: 0 };
-        return {
-          ...a,
-          geometry: {
-            ...a.geometry,
-            coordinates: [newPos.lng, newPos.lat],
-          },
-          properties: {
-            ...a.properties,
-            local_x_m: local.local_x_m,
-            local_y_m: local.local_y_m,
-            timestamps: {
-              ...a.properties.timestamps,
-              updated_at: new Date().toISOString(),
-              last_operation: 'asset_moved',
+        
+        // TypeScript Hatası Çözümü: Sadece 'Point' geometrileri tek bir LatLng ile güncellenebilir.
+        if (a.geometry.type === 'Point') {
+          return {
+            ...a,
+            geometry: {
+              ...a.geometry,
+              type: 'Point',
+              coordinates: [newPos.lng, newPos.lat] as [number, number],
             },
-          },
-        };
+            properties: {
+              ...a.properties,
+              local_x_m: local.local_x_m,
+              local_y_m: local.local_y_m,
+              timestamps: {
+                ...a.properties.timestamps,
+                updated_at: new Date().toISOString(),
+                last_operation: 'asset_moved',
+              },
+            },
+          } as CanonicalAsset; // Tip güvenliğini garanti altına alıyoruz
+        }
+
+        // Eğer obje Point değilse (LineString veya Polygon ise) koordinatlarını bozmamak için aynı bırakıyoruz.
+        return a;
       })
     );
     setMovingAssetId(null);
