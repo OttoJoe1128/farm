@@ -9,7 +9,6 @@ click==8.0.3
 colorama==0.4.4
 configobj==5.0.6
 cryptography==3.4.8
-defer==1.0.6
 distro==1.7.0
 eyeD3==0.8.10
 filelock==3.6.0
