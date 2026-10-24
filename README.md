@@ -6,7 +6,7 @@ SmartFarm XR, tarımsal parselleri ve kadastro sınırlarını uydu görüntüs�
 
 1. **İnteraktif Kadastro & Parsel Haritası**:
    - ESRI World Imagery uydu katmanı ve OpenStreetMap sokak görünümü.
-   - Gerçek TKGM / GeoJSON parsel geometrisi (Edirne Merkez Bosna, Muğla Milas Çomakdağ ve özel yüklemeler).
+   - Gerçek TKGM / GeoJSON parsel geometrisi .
    - Parsel sınırlarına kilitlenme (2.5m vertex snap) ve 2m metrik ızgara desteği.
    - Parsel dışına varlık eklenmesini engelleyen Ray-Casting poligon kontrolü.
    - Çiftlik içi mesafe ölçüm cetveli (metrik hesaplama).
