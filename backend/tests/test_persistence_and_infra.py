@@ -54,6 +54,15 @@ def test_cors_does_not_allow_credentials_with_wildcard_origin(client):
     assert response.headers.get("access-control-allow-credentials") != "true"
 
 
+def test_cors_wildcard_mixed_with_origins_disables_credentials():
+    assert app_module._cors_settings("*,https://app.example") == (["*"], False)
+    assert app_module._cors_settings("") == (["*"], False)
+    assert app_module._cors_settings("https://a.example, https://b.example") == (
+        ["https://a.example", "https://b.example"],
+        True,
+    )
+
+
 def test_jwt_secret_required_in_production():
     with pytest.raises(RuntimeError):
         app_module._resolve_jwt_secret({"ENVIRONMENT": "production"})

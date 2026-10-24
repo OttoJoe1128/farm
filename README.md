@@ -77,4 +77,6 @@ Ortam değişkenleri: `SECRET_KEY` (production'da zorunlu), `ENVIRONMENT`, `CORS
 `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` (admin hesabı yalnızca bunlarla oluşturulur),
 `DB_FILE`, `USERS_FILE`, `UPLOAD_DIR`, `MAX_UPLOAD_BYTES`.
 
-Canlı akış: `ws://<host>:8000/ws/live?token=<access_token>` (token zorunlu, sadece kullanıcının kendi olayları gönderilir).
+Canlı akış: `ws://<host>:8000/ws/live`; bağlandıktan sonra ilk mesaj `{"type": "auth", "token": "<access_token>"}` olmalı (10 sn içinde). Sadece kullanıcının kendi olayları gönderilir.
+
+Docker: `SECRET_KEY` tanımlanmadan `docker compose up` çalışmaz; veri eskisi gibi `./backend` altında kalır.

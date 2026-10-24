@@ -9,12 +9,13 @@ class LiveEventService {
 
   Stream<Map<String, dynamic>> baglan() {
     _controller ??= StreamController<Map<String, dynamic>>.broadcast();
-    final String token = AuthService.instance.accessToken ?? '';
-    _channel ??= WebSocketChannel.connect(
-      Uri.parse('ws://127.0.0.1:8000/ws/live').replace(
-        queryParameters: <String, String>{'token': token},
-      ),
-    );
+    if (_channel == null) {
+      _channel = WebSocketChannel.connect(Uri.parse('ws://127.0.0.1:8000/ws/live'));
+      _channel!.sink.add(jsonEncode(<String, dynamic>{
+        'type': 'auth',
+        'token': AuthService.instance.accessToken ?? '',
+      }));
+    }
     _channel!.stream.listen(
       (dynamic event) {
         if (_controller == null) {

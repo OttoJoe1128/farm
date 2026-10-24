@@ -155,3 +155,16 @@ def test_admin_farms_tolerates_items_without_geometry(client, monkeypatch):
     response = client.get("/api/v1/admin/farms", headers=auth_headers(admin))
     assert response.status_code == 200
     assert response.json()["count"] == 1
+
+
+def test_long_password_suffix_is_not_ignored(client):
+    long_password = "x" * 80 + "correct"
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": "long@example.com", "username": "long", "password": long_password},
+    )
+    assert response.status_code == 200, response.text
+    wrong = client.post("/api/v1/auth/login", json={"email": "long@example.com", "password": "x" * 80 + "WRONG!!"})
+    assert wrong.status_code == 401
+    right = client.post("/api/v1/auth/login", json={"email": "long@example.com", "password": long_password})
+    assert right.status_code == 200

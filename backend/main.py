@@ -50,14 +50,19 @@ logger = logging.getLogger("smartfarm")
 
 app = FastAPI()
 
-CORS_ORIGINS: List[str] = [
-    origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip() != ""
-] or ["*"]
+def _cors_settings(raw_origins: str) -> Tuple[List[str], bool]:
+    origins: List[str] = [origin.strip() for origin in raw_origins.split(",") if origin.strip() != ""]
+    if origins == [] or "*" in origins:
+        return ["*"], False
+    return origins, True
+
+
+CORS_ORIGINS, CORS_ALLOW_CREDENTIALS = _cors_settings(os.getenv("CORS_ORIGINS", "*"))
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
-    allow_credentials=CORS_ORIGINS != ["*"],
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1198,7 +1203,8 @@ def save_users_db(payload: Dict[str, Any]) -> None:
     _write_json_file(USERS_FILE, payload)
 
 def _password_bytes(password: str) -> bytes:
-    return password.encode("utf-8")[:72]
+    # Pre-hash so bcrypt's 72-byte input limit never truncates long passwords.
+    return base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
 
 def _hash_password(password: str) -> str:
     return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")

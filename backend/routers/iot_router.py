@@ -20,6 +20,8 @@ from services.live_event_contract_service import (
     build_telemetry_event,
 )
 
+WS_AUTH_TIMEOUT_SECONDS = 10
+
 
 class TelemetryIngestRequest(BaseModel):
     asset_id: str
@@ -266,7 +268,18 @@ def create_iot_router(
     @router.websocket("/ws/live")
     async def websocket_live(websocket: WebSocket):
         await websocket.accept()
-        ws_user = authenticate_websocket(websocket.query_params.get("token"))
+        auth_token: Optional[str] = None
+        try:
+            first_message = json.loads(
+                await asyncio.wait_for(websocket.receive_text(), timeout=WS_AUTH_TIMEOUT_SECONDS)
+            )
+            if isinstance(first_message, dict) and first_message.get("type") == "auth":
+                auth_token = str(first_message.get("token") or "")
+        except WebSocketDisconnect:
+            return
+        except (asyncio.TimeoutError, ValueError):
+            auth_token = None
+        ws_user = authenticate_websocket(auth_token)
         if ws_user is None:
             await websocket.send_json({"type": "unauthorized", "schema_version": WS_EVENT_SCHEMA_VERSION})
             await websocket.close(code=4401)
