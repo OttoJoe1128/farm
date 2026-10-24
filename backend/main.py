@@ -41,6 +41,8 @@ from services.live_event_contract_service import (
 from routers.iot_router import create_iot_router
 from routers.fault_router import create_fault_router
 from routers.sync_router import create_sync_router
+from routers.catalog_router import create_catalog_router
+from services.storage import _read_json, _write_json, create_storage
 try:
     from deepforest import main as deepforest_main
 except ImportError:
@@ -73,6 +75,14 @@ UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
 MAX_UPLOAD_BYTES = int(os.getenv("MAX_UPLOAD_BYTES", str(20 * 1024 * 1024)))
 DEV_JWT_SECRET = "smartfarm-dev-secret-change-this"
 _db_lock = threading.RLock()
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "json")
+storage = create_storage(
+    STORAGE_BACKEND,
+    database_url=os.getenv("DATABASE_URL", ""),
+    db_path=lambda: DB_FILE,
+    users_path=lambda: USERS_FILE,
+    lock=_db_lock,
+)
 MAPBOX_ACCESS_TOKEN = os.getenv("MAPBOX_ACCESS_TOKEN", "")
 MAX_IMAGE_DIMENSION = 1200
 ESRI_EXPORT_URL = os.getenv(
@@ -1166,32 +1176,13 @@ def detect_simple_structure_candidates(image_rgba_np: np.ndarray) -> List[List[T
     return candidates
 
 def _read_json_file(path: str, default_value: Any) -> Any:
-    with _db_lock:
-        if not os.path.exists(path):
-            return default_value
-        with open(path, "r", encoding="utf-8") as file_obj:
-            try:
-                return json.load(file_obj)
-            except json.JSONDecodeError as decode_error:
-                raise RuntimeError(f"Veri dosyasi bozuk: {path}") from decode_error
+    return _read_json(path, default_value, _db_lock)
 
 def _write_json_file(path: str, payload: Any) -> None:
-    target_dir: str = os.path.dirname(os.path.abspath(path))
-    with _db_lock:
-        fd, temp_path = tempfile.mkstemp(dir=target_dir, prefix=".tmp_", suffix=".json")
-        try:
-            with os.fdopen(fd, "w", encoding="utf-8") as file_obj:
-                json.dump(payload, file_obj, ensure_ascii=False)
-                file_obj.flush()
-                os.fsync(file_obj.fileno())
-            os.replace(temp_path, path)
-        except BaseException:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-            raise
+    _write_json(path, payload, _db_lock)
 
 def load_users_db() -> Dict[str, Any]:
-    raw_data: Any = _read_json_file(USERS_FILE, {"users": []})
+    raw_data: Any = storage.load_users()
     if not isinstance(raw_data, dict):
         return {"users": []}
     users_list: Any = raw_data.get("users", [])
@@ -1200,7 +1191,7 @@ def load_users_db() -> Dict[str, Any]:
     return {"users": users_list}
 
 def save_users_db(payload: Dict[str, Any]) -> None:
-    _write_json_file(USERS_FILE, payload)
+    storage.save_users(payload)
 
 def _password_bytes(password: str) -> bytes:
     # Pre-hash so bcrypt's 72-byte input limit never truncates long passwords.
@@ -1333,17 +1324,13 @@ def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> D
     return current_user
 
 def load_db() -> Dict[str, Any]:
-    raw_data: Any = _read_json_file(DB_FILE, {"users": {}})
-    if isinstance(raw_data, list):
-        return {"users": {"legacy": {"map": raw_data, "version": 1, "updated_at": datetime.datetime.utcnow().isoformat(), "processed_op_ids": []}}}
-    if not isinstance(raw_data, dict):
-        return {"users": {}}
-    if not isinstance(raw_data.get("users"), dict):
-        raw_data["users"] = {}
-    return raw_data
+    return {"users": storage.all_user_states()}
 
 def save_db(data: Dict[str, Any]) -> None:
-    _write_json_file(DB_FILE, data)
+    with _db_lock:
+        for user_id, state in dict(data.get("users") or {}).items():
+            if isinstance(state, dict):
+                storage.save_user_state(str(user_id), state)
 
 def _empty_user_state() -> Dict[str, Any]:
     return {
@@ -1360,20 +1347,16 @@ def _empty_user_state() -> Dict[str, Any]:
 
 def get_user_state(user_id: str) -> Dict[str, Any]:
     with _db_lock:
-        db_data: Dict[str, Any] = load_db()
-        users_bucket: Dict[str, Any] = db_data["users"]
-        needs_save: bool = False
-        if user_id not in users_bucket or not isinstance(users_bucket[user_id], dict):
-            users_bucket[user_id] = _empty_user_state()
-            needs_save = True
-        user_state: Dict[str, Any] = users_bucket[user_id]
+        loaded_state: Optional[Dict[str, Any]] = storage.load_user_state(user_id)
+        needs_save: bool = loaded_state is None
+        user_state: Dict[str, Any] = loaded_state if loaded_state is not None else _empty_user_state()
         if not isinstance(user_state.get("map"), list):
             user_state["map"] = []
         if any(isinstance(item, dict) and not item.get("asset_id") for item in user_state["map"]):
             needs_save = True
         user_state["map"] = canonicalize_map_items(user_state["map"])
         if needs_save:
-            save_db(db_data)
+            storage.save_user_state(user_id, user_state)
     if not isinstance(user_state.get("processed_op_ids"), list):
         user_state["processed_op_ids"] = []
     if not isinstance(user_state.get("work_orders"), list):
@@ -1392,11 +1375,7 @@ def get_user_state(user_id: str) -> Dict[str, Any]:
 
 def save_user_state(user_id: str, user_state: Dict[str, Any]) -> None:
     with _db_lock:
-        db_data: Dict[str, Any] = load_db()
-        if "users" not in db_data or not isinstance(db_data["users"], dict):
-            db_data["users"] = {}
-        db_data["users"][user_id] = user_state
-        save_db(db_data)
+        storage.save_user_state(user_id, user_state)
 
 def _touch_user_state(user_state: Dict[str, Any]) -> None:
     bump_state_version(user_state)
@@ -1474,7 +1453,35 @@ ensure_default_admin()
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "api_version": API_CONTRACT_VERSION, "at": iso_now_utc()}
+    return {
+        "status": "ok",
+        "api_version": API_CONTRACT_VERSION,
+        "storage": storage.name,
+        "at": iso_now_utc(),
+    }
+
+@app.get("/api/v1/gis/assets/in-bbox")
+def assets_in_bbox(
+    min_lon: float,
+    min_lat: float,
+    max_lon: float,
+    max_lat: float,
+    current_user: Dict[str, Any] = Depends(get_current_user),
+):
+    if min_lon > max_lon or min_lat > max_lat:
+        raise HTTPException(status_code=422, detail="Gecersiz bbox.")
+    user_id: str = str(current_user["id"])
+    get_user_state(user_id)
+    items = storage.assets_in_bbox(user_id, (min_lon, min_lat, max_lon, max_lat))
+    return _with_meta({"assets": items, "count": len(items)}, current_user)
+
+app.include_router(
+    create_catalog_router(
+        get_current_user=get_current_user,
+        require_admin=require_admin,
+        get_storage=lambda: storage,
+    )
+)
 
 app.include_router(
     create_fault_router(

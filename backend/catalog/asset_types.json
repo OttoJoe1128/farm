@@ -1,0 +1,787 @@
+{
+  "version": 1,
+  "types": [
+    {
+      "id": "agac",
+      "label": "Ağaç",
+      "category": "bitki",
+      "asset_type": "living",
+      "icon": "park",
+      "color": "#2E7D32",
+      "geometry_types": [
+        "Point"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "agac",
+          "label": "Ağaç",
+          "fields": [
+            {
+              "key": "species",
+              "label": "Tür",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "variety",
+              "label": "Çeşit",
+              "type": "text"
+            },
+            {
+              "key": "age_years",
+              "label": "Yaş",
+              "type": "integer",
+              "unit": "yıl",
+              "min": 0,
+              "max": 500
+            },
+            {
+              "key": "planting_date",
+              "label": "Dikim tarihi",
+              "type": "date"
+            },
+            {
+              "key": "rootstock",
+              "label": "Anaç",
+              "type": "text"
+            },
+            {
+              "key": "row_no",
+              "label": "Sıra no",
+              "type": "integer",
+              "min": 0
+            },
+            {
+              "key": "tree_no",
+              "label": "Ağaç no",
+              "type": "integer",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "key": "saglik",
+          "label": "Sağlık",
+          "fields": [
+            {
+              "key": "disease_name",
+              "label": "Hastalık",
+              "type": "text"
+            },
+            {
+              "key": "pest_name",
+              "label": "Zararlı",
+              "type": "text"
+            },
+            {
+              "key": "severity",
+              "label": "Şiddet",
+              "type": "select",
+              "options": [
+                "yok",
+                "dusuk",
+                "orta",
+                "yuksek"
+              ]
+            },
+            {
+              "key": "treatment_plan",
+              "label": "Tedavi planı",
+              "type": "textarea"
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_irrigation_at",
+              "label": "Son sulama",
+              "type": "date"
+            },
+            {
+              "key": "last_pruning_at",
+              "label": "Son budama",
+              "type": "date"
+            },
+            {
+              "key": "last_fertilization_at",
+              "label": "Son gübreleme",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "yapi",
+      "label": "Yapı",
+      "category": "altyapi",
+      "icon": "home",
+      "color": "#6D4C41",
+      "geometry_types": [
+        "Point",
+        "Polygon"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "yapi",
+          "label": "Yapı",
+          "fields": [
+            {
+              "key": "usage",
+              "label": "Kullanım",
+              "type": "select",
+              "options": [
+                "depo",
+                "ahir",
+                "ofis",
+                "konut",
+                "diger"
+              ]
+            },
+            {
+              "key": "area_m2",
+              "label": "Alan",
+              "type": "number",
+              "unit": "m²",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "kuyu",
+      "label": "Su kaynağı",
+      "category": "su",
+      "icon": "water_drop",
+      "color": "#1565C0",
+      "geometry_types": [
+        "Point"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "su",
+          "label": "Su",
+          "fields": [
+            {
+              "key": "source_type",
+              "label": "Kaynak tipi",
+              "type": "select",
+              "options": [
+                "kuyu",
+                "depo",
+                "gol",
+                "sebeke"
+              ]
+            },
+            {
+              "key": "depth_m",
+              "label": "Derinlik",
+              "type": "number",
+              "unit": "m",
+              "min": 0
+            },
+            {
+              "key": "flow_lpm",
+              "label": "Debi",
+              "type": "number",
+              "unit": "L/dk",
+              "min": 0
+            },
+            {
+              "key": "license_no",
+              "label": "Ruhsat no",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sensor",
+      "label": "IoT sensör",
+      "category": "iot",
+      "icon": "sensors",
+      "color": "#EF6C00",
+      "geometry_types": [
+        "Point"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "iot",
+          "label": "IoT",
+          "fields": [
+            {
+              "key": "device_id",
+              "label": "Cihaz ID",
+              "type": "text"
+            },
+            {
+              "key": "soil_moisture_pct",
+              "label": "Toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "air_temperature_c",
+              "label": "Hava sıcaklığı",
+              "type": "number",
+              "unit": "°C",
+              "min": -50,
+              "max": 70
+            },
+            {
+              "key": "battery_pct",
+              "label": "Batarya",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "signal_dbm",
+              "label": "Sinyal",
+              "type": "number",
+              "unit": "dBm",
+              "min": -150,
+              "max": 0
+            }
+          ]
+        },
+        {
+          "key": "alarm",
+          "label": "Alarm eşikleri",
+          "fields": [
+            {
+              "key": "soil_moisture_min",
+              "label": "Min toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "soil_moisture_max",
+              "label": "Max toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "air_temperature_min",
+              "label": "Min hava sıcaklığı",
+              "type": "number",
+              "unit": "°C"
+            },
+            {
+              "key": "air_temperature_max",
+              "label": "Max hava sıcaklığı",
+              "type": "number",
+              "unit": "°C"
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gunes",
+      "label": "Güneş paneli",
+      "category": "enerji",
+      "icon": "solar_power",
+      "color": "#F9A825",
+      "geometry_types": [
+        "Point",
+        "Polygon"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "enerji",
+          "label": "Enerji",
+          "fields": [
+            {
+              "key": "capacity_kw",
+              "label": "Kurulu güç",
+              "type": "number",
+              "unit": "kW",
+              "min": 0
+            },
+            {
+              "key": "panel_count",
+              "label": "Panel sayısı",
+              "type": "integer",
+              "min": 0
+            },
+            {
+              "key": "inverter",
+              "label": "İnverter",
+              "type": "text"
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sera",
+      "label": "Sera",
+      "category": "altyapi",
+      "icon": "warehouse",
+      "color": "#00897B",
+      "geometry_types": [
+        "Polygon"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "sera",
+          "label": "Sera",
+          "fields": [
+            {
+              "key": "crop",
+              "label": "Ürün",
+              "type": "text"
+            },
+            {
+              "key": "cover_type",
+              "label": "Örtü",
+              "type": "select",
+              "options": [
+                "cam",
+                "plastik",
+                "polikarbonat"
+              ]
+            },
+            {
+              "key": "heated",
+              "label": "Isıtmalı",
+              "type": "boolean"
+            }
+          ]
+        },
+        {
+          "key": "iot",
+          "label": "IoT",
+          "fields": [
+            {
+              "key": "device_id",
+              "label": "Cihaz ID",
+              "type": "text"
+            },
+            {
+              "key": "soil_moisture_pct",
+              "label": "Toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "air_temperature_c",
+              "label": "Hava sıcaklığı",
+              "type": "number",
+              "unit": "°C",
+              "min": -50,
+              "max": 70
+            },
+            {
+              "key": "battery_pct",
+              "label": "Batarya",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "signal_dbm",
+              "label": "Sinyal",
+              "type": "number",
+              "unit": "dBm",
+              "min": -150,
+              "max": 0
+            }
+          ]
+        },
+        {
+          "key": "alarm",
+          "label": "Alarm eşikleri",
+          "fields": [
+            {
+              "key": "soil_moisture_min",
+              "label": "Min toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "soil_moisture_max",
+              "label": "Max toprak nemi",
+              "type": "number",
+              "unit": "%",
+              "min": 0,
+              "max": 100
+            },
+            {
+              "key": "air_temperature_min",
+              "label": "Min hava sıcaklığı",
+              "type": "number",
+              "unit": "°C"
+            },
+            {
+              "key": "air_temperature_max",
+              "label": "Max hava sıcaklığı",
+              "type": "number",
+              "unit": "°C"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sulama_hatti",
+      "label": "Sulama hattı",
+      "category": "su",
+      "icon": "water",
+      "color": "#0288D1",
+      "geometry_types": [
+        "LineString"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "sulama",
+          "label": "Sulama",
+          "fields": [
+            {
+              "key": "method",
+              "label": "Yöntem",
+              "type": "select",
+              "options": [
+                "damla",
+                "yagmurlama",
+                "salma"
+              ]
+            },
+            {
+              "key": "pipe_diameter_mm",
+              "label": "Boru çapı",
+              "type": "number",
+              "unit": "mm",
+              "min": 0
+            },
+            {
+              "key": "flow_lph",
+              "label": "Debi",
+              "type": "number",
+              "unit": "L/saat",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "cit",
+      "label": "Çit",
+      "category": "altyapi",
+      "icon": "fence",
+      "color": "#795548",
+      "geometry_types": [
+        "LineString"
+      ],
+      "form": [
+        {
+          "key": "genel",
+          "label": "Genel",
+          "fields": [
+            {
+              "key": "asset_code",
+              "label": "Varlık kodu",
+              "type": "text"
+            },
+            {
+              "key": "notes",
+              "label": "Notlar",
+              "type": "textarea"
+            },
+            {
+              "key": "photo_urls",
+              "label": "Fotoğraf bağlantısı",
+              "type": "url"
+            }
+          ]
+        },
+        {
+          "key": "cit",
+          "label": "Çit",
+          "fields": [
+            {
+              "key": "material",
+              "label": "Malzeme",
+              "type": "select",
+              "options": [
+                "tel",
+                "ahsap",
+                "beton",
+                "elektrikli"
+              ]
+            },
+            {
+              "key": "height_m",
+              "label": "Yükseklik",
+              "type": "number",
+              "unit": "m",
+              "min": 0
+            }
+          ]
+        },
+        {
+          "key": "bakim",
+          "label": "Bakım",
+          "fields": [
+            {
+              "key": "last_maintenance_at",
+              "label": "Son bakım",
+              "type": "date"
+            },
+            {
+              "key": "next_maintenance_at",
+              "label": "Sonraki bakım",
+              "type": "date"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

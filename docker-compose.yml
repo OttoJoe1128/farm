@@ -11,6 +11,9 @@ services:
       - DB_FILE=/app/digital_twin_db.json
       - USERS_FILE=/app/users_db.json
       - UPLOAD_DIR=/app/uploads
+      # json (default) or postgis; postgis needs `docker compose --profile postgis up`.
+      - STORAGE_BACKEND=${STORAGE_BACKEND:-json}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://smartfarm:${POSTGRES_PASSWORD:-smartfarm}@postgis:5432/smartfarm}
       - CORS_ORIGINS=${CORS_ORIGINS:-*}
       - DEFAULT_ADMIN_EMAIL=${DEFAULT_ADMIN_EMAIL:-}
       - DEFAULT_ADMIN_PASSWORD=${DEFAULT_ADMIN_PASSWORD:-}
@@ -20,3 +23,22 @@ services:
     volumes:
       - ./backend:/app
     restart: unless-stopped
+
+  postgis:
+    image: postgis/postgis:16-3.4
+    profiles: ["postgis"]
+    container_name: smartfarm_postgis
+    environment:
+      - POSTGRES_DB=smartfarm
+      - POSTGRES_USER=smartfarm
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-smartfarm}
+    volumes:
+      - smartfarm_postgis:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartfarm -d smartfarm"]
+      interval: 10s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  smartfarm_postgis:
