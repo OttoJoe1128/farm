@@ -61,3 +61,20 @@ npm test
 # Üretim derlemesi
 npm run build
 ```
+
+### Backend (FastAPI, `backend/main.py`)
+
+```bash
+cd backend
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+SECRET_KEY=degistir .venv/bin/uvicorn main:app --reload --port 8000
+
+# Backend testleri (repo kökünden)
+pytest
+```
+
+Ortam değişkenleri: `SECRET_KEY` (production'da zorunlu), `ENVIRONMENT`, `CORS_ORIGINS`,
+`DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD` (admin hesabı yalnızca bunlarla oluşturulur),
+`DB_FILE`, `USERS_FILE`, `UPLOAD_DIR`, `MAX_UPLOAD_BYTES`.
+
+Canlı akış: `ws://<host>:8000/ws/live?token=<access_token>` (token zorunlu, sadece kullanıcının kendi olayları gönderilir).

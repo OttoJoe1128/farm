@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Dict, List
+import json
+from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
@@ -52,7 +53,8 @@ def create_iot_router(
     ensure_asset_identity: Callable[[Dict[str, Any]], Dict[str, Any]],
     with_meta: Callable[[Dict[str, Any], Dict[str, Any] | None], Dict[str, Any]],
     api_error: Callable[..., Any],
-    broadcast_live_event: Callable[[Dict[str, Any]], Any],
+    broadcast_live_event: Callable[..., Any],
+    authenticate_websocket: Callable[[Optional[str]], Optional[Dict[str, Any]]],
     iso_now_utc: Callable[[], str],
     live_websocket_clients: List[WebSocket],
     ws_heartbeat_timeout_seconds: int,
@@ -125,7 +127,8 @@ def create_iot_router(
                 metrics=metrics,
                 alerts=detected_alerts,
                 measured_at=str(normalized["measured_at"]),
-            )
+            ),
+            user_id=str(current_user["id"]),
         )
         return with_meta(
             {"status": "ok", "telemetry": normalized, "alerts": detected_alerts},
@@ -168,7 +171,11 @@ def create_iot_router(
     @router.get("/api/v1/iot/devices")
     def list_iot_devices(current_user: Dict[str, Any] = Depends(get_current_user)):
         user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
-        devices: List[Dict[str, Any]] = list(user_state.get("iot_devices", []))
+        devices: List[Dict[str, Any]] = [
+            {key: value for key, value in row.items() if key != "api_key"}
+            for row in user_state.get("iot_devices", [])
+            if isinstance(row, dict)
+        ]
         return with_meta(
             {"status": "ok", "items": devices, "count": len(devices)},
             current_user,
@@ -259,6 +266,12 @@ def create_iot_router(
     @router.websocket("/ws/live")
     async def websocket_live(websocket: WebSocket):
         await websocket.accept()
+        ws_user = authenticate_websocket(websocket.query_params.get("token"))
+        if ws_user is None:
+            await websocket.send_json({"type": "unauthorized", "schema_version": WS_EVENT_SCHEMA_VERSION})
+            await websocket.close(code=4401)
+            return
+        websocket.state.user_id = str(ws_user.get("id", ""))
         live_websocket_clients.append(websocket)
         try:
             await websocket.send_json(
@@ -270,10 +283,14 @@ def create_iot_router(
             )
             while True:
                 try:
-                    incoming = await asyncio.wait_for(
-                        websocket.receive_json(),
+                    raw_message = await asyncio.wait_for(
+                        websocket.receive_text(),
                         timeout=ws_heartbeat_timeout_seconds,
                     )
+                    try:
+                        incoming = json.loads(raw_message)
+                    except ValueError:
+                        continue
                     if isinstance(incoming, dict) and str(incoming.get("type")) == "ping":
                         incoming_schema = str(
                             incoming.get("schema_version", WS_EVENT_SCHEMA_VERSION)
@@ -310,8 +327,6 @@ def create_iot_router(
                     )
                     await websocket.close(code=4000)
                     break
-                except Exception:
-                    await websocket.receive_text()
         except WebSocketDisconnect:
             pass
         finally:

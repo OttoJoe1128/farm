@@ -63,6 +63,7 @@ def create_sync_router(
         map_data: List[Dict[str, Any]] = canonicalize_map_items(list(user_state.get("map", [])))
         processed_ops: List[str] = list(user_state.get("processed_op_ids", []))
         processed_set = set(processed_ops)
+        supported_op_types = {"add_asset", "update_asset", "delete_asset", "upload_parcel", "replace_snapshot"}
         applied_count: int = 0
         skipped_count: int = 0
         conflicts: List[Dict[str, Any]] = []
@@ -73,6 +74,11 @@ def create_sync_router(
                 continue
             payload: Dict[str, Any] = dict(op.payload or {})
             op_type: str = str(op.type)
+            if op_type not in supported_op_types:
+                conflicts.append(
+                    {"type": "unsupported_op_type", "client_op_id": op_id, "op_type": op_type}
+                )
+                continue
             if op_type == "add_asset":
                 asset_obj: Any = payload.get("asset")
                 if isinstance(asset_obj, dict):
@@ -129,10 +135,11 @@ def create_sync_router(
                     )
                     applied_count += 1
             processed_set.add(op_id)
+            processed_ops.append(op_id)
         if applied_count > 0:
             user_state["map"] = map_data
             touch_user_state(user_state)
-        user_state["processed_op_ids"] = list(processed_set)[-500:]
+        user_state["processed_op_ids"] = processed_ops[-500:]
         save_user_state(user_id, user_state)
         return with_meta(
             {

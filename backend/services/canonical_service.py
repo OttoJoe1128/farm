@@ -119,12 +119,23 @@ def find_asset_index_by_id(items: List[Dict[str, Any]], asset_id: str) -> int:
     return -1
 
 
+def _timestamp_sort_key(raw: str) -> Any:
+    text: str = str(raw or "").strip()
+    try:
+        parsed = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return (0, text)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return (1, parsed.astimezone(datetime.timezone.utc))
+
+
 def merge_by_latest_timestamp(existing: Dict[str, Any], incoming: Dict[str, Any]) -> Dict[str, Any]:
     left = ensure_asset_identity(existing)
     right = ensure_asset_identity(incoming)
     left_ts = str(_to_dict(_to_dict(left.get("properties")).get("timestamps")).get("updated_at", ""))
     right_ts = str(_to_dict(_to_dict(right.get("properties")).get("timestamps")).get("updated_at", ""))
-    if right_ts >= left_ts:
+    if _timestamp_sort_key(right_ts) >= _timestamp_sort_key(left_ts):
         merged = right
         selected_event = "merged_incoming_latest"
     else:

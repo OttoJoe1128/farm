@@ -8,3 +8,15 @@ node_modules/
 
 # Firebase Admin SDK ozel anahtarlari (gizli!)
 *-firebase-adminsdk-*.json
+
+# Backend runtime data
+digital_twin_db.json
+users_db.json
+uploads/
+backend/.venv/
+
+# Test / build artifacts
+coverage/
+dist/
+.coverage
+.pytest_cache/

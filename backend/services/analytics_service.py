@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+CLOSED_WORK_ORDER_STATUSES = {"closed", "done", "completed", "cancelled", "canceled", "tamamlandi", "iptal"}
+INACTIVE_ALERT_STATUSES = {"closed", "resolved"}
+
 
 def build_kpi(
     map_items: List[Dict[str, Any]],
@@ -31,7 +34,7 @@ def build_kpi(
     work_closed = 0
     for row in work_orders:
         status = str(row.get("status", "open"))
-        if status in ("closed", "done", "completed"):
+        if status.strip().lower() in CLOSED_WORK_ORDER_STATUSES:
             work_closed += 1
         else:
             work_open += 1
@@ -44,5 +47,9 @@ def build_kpi(
         "work_orders_open": work_open,
         "work_orders_closed": work_closed,
         "telemetry_points": len(telemetry_log),
-        "active_alerts": len(alerts),
+        "active_alerts": sum(
+            1
+            for alert in alerts
+            if str((alert or {}).get("status", "open")).strip().lower() not in INACTIVE_ALERT_STATUSES
+        ),
     }
