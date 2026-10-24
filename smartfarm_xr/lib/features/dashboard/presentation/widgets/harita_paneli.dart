@@ -98,6 +98,7 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
     }
     // Araç seçimi değişince de görünümü güncelle (Nokta moduna geçmek için)
     if (widget.seciliArac != oldWidget.seciliArac) {
+      _tasinanVarlikIndex = null;
       if (widget.seciliArac != 'olcum') {
         setState(() {
           _olcumNoktalari = [];
@@ -106,7 +107,10 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
       }
       _veriyiIsle();
     }
-    if (widget.seciliParsel == null) _editMode = false;
+    if (widget.seciliParsel == null) {
+      _editMode = false;
+      _tasinanVarlikIndex = null;
+    }
   }
 
   void _haritaHazir() {
@@ -120,7 +124,14 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
   }
 
   void _haritayaTiklandi(TapPosition tapPosition, LatLng point) {
-    if (_polygons.isEmpty) return;
+    if (_polygons.isEmpty) {
+      if (widget.seciliArac != null || _tasinanVarlikIndex != null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Varlık eklemek için önce bir parsel yükleyin."),
+            backgroundColor: Colors.orange));
+      }
+      return;
+    }
     LatLng hedefNokta = _enYakinNoktayaYapistir(point);
     if (!_noktaArazideMi(hedefNokta)) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -279,23 +290,19 @@ class _HaritaPaneliState extends State<HaritaPaneli> {
           List coords = item['geometry']['coordinates'];
           LatLng point = LatLng(coords[1], coords[0]);
           tumNoktalar.add(point);
-          String tip = item['style']['icon'];
+          String tip = (item['style']?['icon'] ?? '').toString();
 
           Widget markerWidget;
 
           // --- GÖRÜNÜM MANTIĞI ---
           if (eklemeModuAktif) {
-            // 1. EKLEME MODU: Sadece küçük noktalar (Görüşü kapatmasın)
-            markerWidget = Container(
-              decoration: BoxDecoration(
-                  color: color,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                      color: Colors.white.withOpacity(0.5), width: 1)),
+            // EKLEME MODU: yarı saydam ikon; yeni eklenen varlık görünür kalsın.
+            markerWidget = Opacity(
+              opacity: 0.75,
+              child: _ikonGetir(tip, color, 22),
             );
-            // Nokta modunda boyut küçük olsun
             yeniMarkerlar.add(Marker(
-                point: point, width: 12, height: 12, child: markerWidget));
+                point: point, width: 26, height: 26, child: markerWidget));
           } else {
             if (_editMode) {
               markerWidget = _ikonGetir(tip, color, 32);

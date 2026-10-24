@@ -38,6 +38,8 @@ class VarlikKutuphanesi extends StatelessWidget {
             const SizedBox(width: 15),
             _aracButonu("gunes", Icons.solar_power, Colors.yellow, "Enerji"),
             const SizedBox(width: 15),
+            Container(width: 1, height: 36, color: Colors.white24),
+            const SizedBox(width: 15),
             _aracButonu("olcum", Icons.straighten, Colors.cyan, "Ölçüm"),
           ],
         ),
