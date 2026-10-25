@@ -5,9 +5,7 @@ __pycache__/
 node_modules/
 .cache/
 .venv/
-
-# Firebase Admin SDK ozel anahtarlari (gizli!)
-*-firebase-adminsdk-*.json
+.vercel
 
 # Backend runtime data
 digital_twin_db.json
