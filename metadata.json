@@ -1,6 +1,0 @@
-{
-  "name": "SmartFarm XR",
-  "description": "Akıllı Çiftlik ve Kadastro Yönetim Platformu: Uydu katmanlı parsel yönetimi, dijital ikiz varlıkları, IoT telemetri ve iş emirleri.",
-  "permissions": [],
-  "capabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
