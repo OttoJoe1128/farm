@@ -373,6 +373,18 @@ export function buildParcelGridCellSizes(widthMeters: number, heightMeters: numb
   return sizes;
 }
 
+export function getParcelId(parcel: ParcelFeature | null | undefined): string | undefined {
+  if (!parcel) return undefined;
+  const props = parcel.properties;
+  const explicitId = props.parcel_id ?? props.id;
+  if (explicitId !== undefined && explicitId !== null && String(explicitId) !== '') {
+    return String(explicitId);
+  }
+  const ada = props.Ada ?? '0';
+  const no = props.ParselNo ?? '0';
+  return `${ada}/${no}`;
+}
+
 export function areSameParcel(a: ParcelFeature | null | undefined, b: ParcelFeature | null | undefined): boolean {
   if (!a || !b) {
     return a === b;
@@ -527,6 +539,7 @@ export function createNewAsset(
 
   return {
     asset_id: assetId,
+    parcel_id: getParcelId(parcel),
     name: nameMap[tip] || `Varlık ${tip.toUpperCase()}`,
     type: isLinear ? 'LineString' : 'Point',
     geometry: isLinear

@@ -154,6 +154,7 @@ else:
     print("UYARI: DeepForest kurulu degil. analyze-satellite endpointi devre disi.")
 
 class Asset(BaseModel):
+    parcel_id: Optional[str] = None
     name: str
     type: str
     geometry: Dict[str, Any]

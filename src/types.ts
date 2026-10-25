@@ -182,6 +182,8 @@ export interface AuditLogEntry {
 
 export interface CanonicalAsset {
   asset_id: string;
+  /** Varlığın ait olduğu parselin kararlı kimliği (bkz. getParcelId). */
+  parcel_id?: string;
   name: string;
   type: 'Point' | 'LineString' | 'Polygon';
   geometry: GeometryPoint | GeometryLineString | GeometryPolygon;

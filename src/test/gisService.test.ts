@@ -9,6 +9,8 @@ import {
   computePolygonClippedGrid,
   buildParcelGridCellSizes,
   findParcelContainingPoint,
+  getParcelId,
+  createNewAsset,
   getParcelDimensionMeters,
   MIN_GRID_CELL_METERS,
 } from '../services/gisService';
@@ -119,6 +121,14 @@ describe('GIS & Spatial Geometry Service Tests', () => {
     expect(findParcelContainingPoint(insideEdirne, [EDIRNE_PARCEL, MILAS_PARCEL])?.properties.ParselNo).toBe('835');
     const outside = { lat: 41.63, lng: 26.58 };
     expect(findParcelContainingPoint(outside, [EDIRNE_PARCEL, MILAS_PARCEL])).toBeNull();
+  });
+
+  it('should bind new assets to the host parcel via parcel_id', () => {
+    const pos = { lat: 41.62085, lng: 26.57165 };
+    const asset = createNewAsset('agac', pos, EDIRNE_PARCEL);
+    expect(asset.parcel_id).toBe(getParcelId(EDIRNE_PARCEL));
+    expect(asset.parcel_id).not.toBe(getParcelId(MILAS_PARCEL));
+    expect(createNewAsset('agac', pos).parcel_id).toBeUndefined();
   });
 });
 
