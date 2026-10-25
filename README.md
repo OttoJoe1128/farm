@@ -12,7 +12,7 @@ Yapılacaklar için: [`TODO.md`](./TODO.md)
 | API | FastAPI (kimlik doğrulama, GIS, IoT, iş emirleri, WebSocket) | `backend/` | Vercel dışında (Docker / VM). Uzun ömürlü WebSocket gerektirdiği için |
 | Depolama | JSON dosyası (varsayılan) veya PostgreSQL + PostGIS | `backend/services/storage.py` | Backend ile birlikte |
 
-Şu an arayüz tek başına çalışır: veriler tarayıcıda `localStorage` içinde (`smartfarm_state_v2`) tutulur ve backend'e henüz bağlı değildir (bkz. `TODO.md`, P3).
+Şu an arayüz tek başına çalışır: veriler tarayıcıda `localStorage` içinde (`smartfarm_state_v2`) tutulur ve backend'e henüz bağlı değildir (bkz. `TODO.md`, P2). Bu yüzden IoT telemetri, alarmlar ve yönetim paneli arayüzde simüle edilir; veri yalnızca ilgili tarayıcıda durur.
 
 ## Temel özellikler
 
@@ -49,7 +49,7 @@ Ortam değişkenleri: `SECRET_KEY` (production'da zorunlu), `ENVIRONMENT`, `CORS
 
 - Vercel projesinin **Root Directory** değeri bu deponun kökü olmalıdır.
 - Framework: Vite. Build komutu `npm run build`, çıktı klasörü `dist`.
-- Backend Vercel'e dağıtılmaz. Arayüzün backend'e bağlanması için API adresi bir ortam değişkeni (ör. `VITE_API_URL`) olarak eklenecek (bkz. `TODO.md`, P3).
+- Backend Vercel'e dağıtılmaz (WebSocket ve ağır Python bağımlılıkları nedeniyle). Ücretsiz demo için önerilen düzen ve alternatifler `TODO.md` içinde. Arayüzün backend'e bağlanması için API adresi `VITE_API_URL` ortam değişkeni olarak eklenecek (bkz. `TODO.md`, P2).
 
 ## Backend API sözleşmesi (özet)
 
