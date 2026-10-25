@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ShieldCheck, Users, MapPin, History, UserPlus, Check, X, Search, ArrowLeft } from 'lucide-react';
 import { UserAccount, AuditLogEntry, ParcelFeature } from '../types';
+import { getParcelId, getParcelLabel } from '../services/gisService';
 
 interface AdminPanelProps {
   parcels: ParcelFeature[];
@@ -200,20 +201,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ parcels, auditLogs, onBa
           <h2 className="text-sm font-bold text-white">Sistemde Kayıtlı Kadastro Parselleri ({parcels.length})</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {parcels.map((p, idx) => (
-              <div key={idx} className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-2">
+              <div key={getParcelId(p) ?? idx} className="bg-slate-900 border border-slate-800 rounded-xl p-5 shadow-lg flex flex-col gap-2">
                 <div className="flex items-center justify-between">
                   <h3 className="font-bold text-white text-sm">
-                    {p.properties.name || `Parsel ${p.properties.ParselNo}`}
+                    {getParcelLabel(p)}
                   </h3>
                   <span className="text-xs font-mono text-emerald-400 bg-emerald-950/60 border border-emerald-800/40 px-2 py-0.5 rounded">
-                    {p.properties.Alan}
+                    {p.properties.Alan || '-'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-2 text-xs text-slate-300 font-sans mt-2">
-                  <div>İl / İlçe: <strong className="text-white">{p.properties.Il} / {p.properties.Ilce}</strong></div>
+                  <div>İl / İlçe: <strong className="text-white">{p.properties.Il || '-'} / {p.properties.Ilce || '-'}</strong></div>
                   <div>Mahalle: <strong className="text-white">{p.properties.Mahalle || '-'}</strong></div>
-                  <div>Ada / Parsel: <strong className="text-white">{p.properties.Ada || '-'}/{p.properties.ParselNo}</strong></div>
-                  <div>Nitelik: <strong className="text-white">{p.properties.Nitelik}</strong></div>
+                  <div>Ada / Parsel: <strong className="text-white">{p.properties.Ada || '-'}/{p.properties.ParselNo || '-'}</strong></div>
+                  <div>Nitelik: <strong className="text-white">{p.properties.Nitelik || '-'}</strong></div>
                 </div>
               </div>
             ))}

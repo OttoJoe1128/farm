@@ -17,8 +17,10 @@ import {
   Bell,
   ArrowLeft,
   ChevronDown,
+  Download,
 } from 'lucide-react';
 import { ParcelFeature, FarmKpi } from '../types';
+import { getParcelId, getParcelLabel } from '../services/gisService';
 
 export type ActiveTab = 'map' | 'work_orders' | 'telemetry' | 'admin' | 'tests';
 
@@ -31,6 +33,7 @@ interface TopBarProps {
   satelliteMode: boolean;
   onToggleSatellite: () => void;
   onUploadParcelClick: () => void;
+  onExportBackupClick: () => void;
   onFieldIngestClick: () => void;
   onWorkOrderQuickClick: () => void;
   onIoTDemoClick: () => void;
@@ -52,6 +55,7 @@ export const TopBar: React.FC<TopBarProps> = ({
   satelliteMode,
   onToggleSatellite,
   onUploadParcelClick,
+  onExportBackupClick,
   onFieldIngestClick,
   onWorkOrderQuickClick,
   onIoTDemoClick,
@@ -211,7 +215,17 @@ export const TopBar: React.FC<TopBarProps> = ({
                       className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Parsel Yükle (.geojson)</span>
+                      <span>Parsel / Yedek Yükle (.geojson, .json)</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        onExportBackupClick();
+                        setIsMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-slate-200 hover:bg-slate-800 text-left transition-colors cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Verileri Yedekle (JSON)</span>
                     </button>
                     <button
                       onClick={() => {
@@ -280,16 +294,16 @@ export const TopBar: React.FC<TopBarProps> = ({
           {/* Parcel Selector Dropdown */}
           <select
             aria-label="Parsel Seçin"
-            value={selectedParcel?.properties.ParselNo || ''}
+            value={getParcelId(selectedParcel) || ''}
             onChange={(e) => {
-              const found = parcels.find((p) => p.properties.ParselNo === e.target.value);
+              const found = parcels.find((p) => getParcelId(p) === e.target.value);
               if (found) onSelectParcel(found);
             }}
             className="bg-slate-950 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer"
           >
             {parcels.map((p) => (
-              <option key={p.properties.ParselNo} value={p.properties.ParselNo}>
-                {p.properties.name || `Parsel ${p.properties.ParselNo}`} ({p.properties.Il || 'TKGM'})
+              <option key={getParcelId(p)} value={getParcelId(p)}>
+                {getParcelLabel(p)} ({p.properties.Il || 'TKGM'})
               </option>
             ))}
           </select>

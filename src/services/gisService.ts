@@ -373,23 +373,53 @@ export function buildParcelGridCellSizes(widthMeters: number, heightMeters: numb
   return sizes;
 }
 
+/**
+ * Parsel geometrisinden kararlı kısa bir parmak izi üretir (FNV-1a, 6 hane duyarlılık).
+ * Ada/ParselNo bilgisi olmayan parseller için kimlik kaynağı olarak kullanılır.
+ */
+export function geometryFingerprint(parcel: ParcelFeature): string {
+  const coords = JSON.stringify(parcel.geometry?.coordinates ?? [], (_key, value) =>
+    typeof value === 'number' ? Math.round(value * 1e6) / 1e6 : value
+  );
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < coords.length; i++) {
+    hash ^= coords.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * Parselin kararlı kimliği. Sıra: properties.parcel_id → properties.id → "Ada/ParselNo" → geometri parmak izi.
+ * Örnek TKGM parselleri ("103/835") için önceki çıktıyla aynıdır.
+ */
 export function getParcelId(parcel: ParcelFeature | null | undefined): string | undefined {
   if (!parcel) return undefined;
-  const props = parcel.properties;
+  const props = parcel.properties ?? {};
   const explicitId = props.parcel_id ?? props.id;
   if (explicitId !== undefined && explicitId !== null && String(explicitId) !== '') {
     return String(explicitId);
   }
-  const ada = props.Ada ?? '0';
-  const no = props.ParselNo ?? '0';
-  return `${ada}/${no}`;
+  if (props.ParselNo !== undefined && props.ParselNo !== null && String(props.ParselNo) !== '') {
+    return `${props.Ada ?? '0'}/${props.ParselNo}`;
+  }
+  return `geo-${geometryFingerprint(parcel)}`;
 }
 
 export function areSameParcel(a: ParcelFeature | null | undefined, b: ParcelFeature | null | undefined): boolean {
   if (!a || !b) {
     return a === b;
   }
-  return a.properties.ParselNo === b.properties.ParselNo && a.properties.Ada === b.properties.Ada;
+  return getParcelId(a) === getParcelId(b);
+}
+
+/** Arayüzde gösterilecek parsel adı ("Parsel undefined" üretmez). */
+export function getParcelLabel(parcel: ParcelFeature | null | undefined): string {
+  if (!parcel) return '-';
+  const props = parcel.properties ?? {};
+  if (props.name) return String(props.name);
+  if (props.ParselNo) return `Parsel ${props.Ada ? `${props.Ada}/` : ''}${props.ParselNo}`;
+  return 'Adsiz Parsel';
 }
 
 export function findParcelContainingPoint(

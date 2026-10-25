@@ -38,11 +38,13 @@ Koşullar Render dokümanından (render.com/docs/free) doğrulandı; diğerleri 
 ## P0: Veri güvenliği ve yükleme doğruluğu (hemen)
 
 - [x] Parsel içi/dışı tespiti, araç seçiliyken tıklamayla varlık ekleme, sınır dışı uyarısı
-- [ ] **Parsel kimliği çakışması:** `ParselNo`/`Ada` olmayan GeoJSON parselleri (ör. `name`, `owner` alanlı dosyalar) hepsi `0/0` kimliği alıyor ve `areSameParcel` hepsini aynı parsel sayıyor. Kimlik: `properties.parcel_id` → `Ada/ParselNo` → yoksa geometriden üretilen kararlı özet (hash). Yükleme sırasında her parsele `parcel_id` yaz
-- [ ] **KML:** dosya seçici `.kml` kabul ediyor ama içerik JSON diye okunuyor, hata veriyor. Ya KML desteği ekle ya da `.kml`'i kabul listesinden çıkar
-- [ ] **Yükleme doğrulaması:** `else if (json.features)` dalı Polygon olmayan/Feature olmayan nesneleri kabul ediyor; koordinatların WGS84 aralığında (boylam ±180, enlem ±90) olduğunu kontrol et. TKGM'nin projeksiyonlu (metre) koordinatlarında anlaşılır hata ver
-- [ ] **Yinelenen yükleme:** aynı dosya art arda yüklenince parseller çoğalıyor; aynı `parcel_id` varsa güncelle/uyar
-- [ ] **`localStorage` kotası (~5 MB):** kayıt hatası sessizce `console.warn`'a gidiyor. Büyük parsel dosyalarında veri kaybolur. Kullanıcıya görünür uyarı ver; yedek olarak "dışa aktar / içe aktar (JSON)" ekle
+- [x] **Parsel kimliği çakışması:** `getParcelId`: `parcel_id` → `Ada/ParselNo` → geometri parmak izi. Yükleme sırasında her parsele `parcel_id` yazılıyor; `areSameParcel`, harita, üst çubuk ve yönetim paneli bu kimliği kullanıyor. "Parsel undefined" metinleri giderildi
+- [x] **KML:** dosya seçiciden çıkarıldı; KML/XML yüklenirse net hata veriliyor. (KML desteği istenirse ayrı madde: `DOMParser` ile çevirici)
+- [x] **Yükleme doğrulaması:** yapı (halka ≥ 4 nokta, sayısal koordinat), WGS84 aralığı ve projeksiyonlu (metre) koordinat tespiti; geçersiz kayıtlar uyarıyla atılıyor (`src/services/parcelImport.ts`)
+- [x] **Yinelenen yükleme:** aynı kimlik + aynı geometri güncellenir, aynı kimlik + farklı geometri `-2` son ekiyle ayrı parsel olur
+- [x] **`localStorage` kotası:** kayıt hatasında görünür uyarı; menüde "Verileri Yedekle (JSON)" ve aynı yükleme düğmesiyle yedekten geri yükleme (`src/services/persistence.ts`)
+- [ ] Geri yükleme/yükleme alert/confirm yerine uygulama içi bildirim bileşeni (mevcut `showToast` deseni) kullansın
+- [ ] KML desteği (isteniyorsa)
 - [ ] Tarayıcıda uçtan uca elle doğrula: Vercel'de GeoJSON yükle → parsele zoom → her araç tipiyle varlık ekle → sayfayı yenile
 - [ ] Parsel seçili değilken araç seçilirse net yönlendirme mesajı
 
@@ -79,8 +81,8 @@ Koşullar Render dokümanından (render.com/docs/free) doğrulandı; diğerleri 
 
 ## P4: Test ve kalite
 
-- [~] GIS birim testleri (Vitest, 10 test) ve sözleşme testleri
-- [ ] Yükleme mantığı için birim test (FeatureCollection, tek Feature, parselNo'suz, projeksiyonlu, bozuk dosya). Yükleme kodunu `App.tsx`'ten `gisService`'e taşıyıp test et
+- [~] Vitest: GIS (10), sözleşme (4), parsel yükleme/kimlik/yedekleme (18) testleri
+- [x] Yükleme mantığı için birim test (FeatureCollection, tek Feature, ParselNo'suz, projeksiyonlu, bozuk, tekrar yükleme, KML)
 - [ ] Bileşen testleri (Testing Library): araç seç → parsel içine ekle → dışına eklemeyi reddet
 - [ ] Backend API test kapsamı: kritik uçlar (fault, IoT yaşam döngüsü, sync) için başarılı/hata senaryoları (`pytest` bu çalışmada çalıştırılmadı)
 - [ ] Web + backend uçtan uca smoke testi (telemetri → WS → arayüz rozeti)

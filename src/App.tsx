@@ -11,6 +11,8 @@ import { SagPanel } from './components/SagPanel';
 import { ParcelFeature, CanonicalAsset, AssetType, WorkOrder, WorkOrderStatus, IoTTelemetry, FarmKpi, AuditLogEntry, LatLng } from './types';
 import { EDIRNE_PARCEL, MILAS_PARCEL, INITIAL_ASSETS, INITIAL_WORK_ORDERS } from './services/sampleData';
 import { createNewAsset, calculateLocalMeters, areSameParcel } from './services/gisService';
+import { importParcelsFromText, describeImportResult } from './services/parcelImport';
+import { loadState, saveState, buildBackup, parseBackup } from './services/persistence';
 
 export const App: React.FC = () => {
   // Navigation & Panels State
@@ -63,35 +65,32 @@ export const App: React.FC = () => {
   ]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const storageWarnedRef = useRef<boolean>(false);
 
   // Load from LocalStorage
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('smartfarm_state_v2');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.assets) setAssets(parsed.assets);
-        if (parsed.workOrders) setWorkOrders(parsed.workOrders);
-        if (parsed.parcels) setParcels(parsed.parcels);
-      }
-    } catch (e) {
-      console.warn('LocalStorage error:', e);
+    const saved = loadState();
+    if (saved) {
+      if (saved.assets) setAssets(saved.assets);
+      if (saved.workOrders) setWorkOrders(saved.workOrders);
+      if (saved.parcels) setParcels(saved.parcels);
     }
   }, []);
 
-  // Save to LocalStorage
+  // Save to LocalStorage (kota dolarsa kullanıcıya bir kez görünür uyarı verir)
   useEffect(() => {
-    try {
-      localStorage.setItem(
-        'smartfarm_state_v2',
-        JSON.stringify({
-          assets,
-          workOrders,
-          parcels,
-        })
+    const result = saveState({ assets, workOrders, parcels });
+    if (result.ok) {
+      storageWarnedRef.current = false;
+      return;
+    }
+    if (!storageWarnedRef.current) {
+      storageWarnedRef.current = true;
+      alert(
+        result.reason === 'quota'
+          ? 'Tarayıcı depolama alanı doldu: son değişiklikler kaydedilemiyor ve sayfa yenilenirse kaybolur.\n\nÖnce "Verileri Yedekle (JSON)" ile yedek alın; ardından daha küçük bir parsel dosyası yükleyin veya kullanılmayan parselleri kaldırın.'
+          : 'Değişiklikler tarayıcı depolamasına kaydedilemedi. "Verileri Yedekle (JSON)" ile yedek almayı düşünün.'
       );
-    } catch (e) {
-      console.warn('LocalStorage save error:', e);
     }
   }, [assets, workOrders, parcels]);
 
@@ -182,37 +181,52 @@ export const App: React.FC = () => {
     if (!file) return;
 
     const reader = new FileReader();
+    reader.onerror = () => alert('Dosya okunamadı.');
     reader.onload = (event) => {
-      try {
-        const content = event.target?.result as string;
-        const json = JSON.parse(content);
+      const content = String(event.target?.result ?? '');
 
-        let newParcelFeatures: ParcelFeature[] = [];
-        if (json.type === 'FeatureCollection' && Array.isArray(json.features)) {
-          newParcelFeatures = json.features.filter(
-            (f: any) => f.geometry && (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon')
-          );
-        } else if (json.type === 'Feature' && json.geometry) {
-          newParcelFeatures = [json as ParcelFeature];
-        } else if (json.features && Array.isArray(json.features)) {
-          newParcelFeatures = json.features;
-        }
-
-        if (newParcelFeatures.length > 0) {
-          const first = newParcelFeatures[0];
-          setParcels((prev) => [...newParcelFeatures, ...prev]);
-          setSelectedParcel(first);
-          setActiveTab('map');
-          alert(`${newParcelFeatures.length} adet parsel başarıyla yüklendi!`);
-        } else {
-          alert('Dosyada geçerli parsel geometrisi bulunamadı.');
-        }
-      } catch (err) {
-        alert('Dosya parse edilemedi.');
+      // Yedek dosyası ("Verileri Yedekle" çıktısı) ise tüm veriyi geri yükle
+      const backup = parseBackup(content);
+      if (backup) {
+        const ok = window.confirm(
+          `Yedek geri yüklenecek: ${backup.parcels.length} parsel, ${backup.assets.length} varlık, ${backup.workOrders.length} iş emri.\nMevcut veriler bununla değiştirilecek. Devam edilsin mi?`
+        );
+        if (!ok) return;
+        setParcels(backup.parcels);
+        setAssets(backup.assets);
+        setWorkOrders(backup.workOrders);
+        setSelectedParcel(backup.parcels[0] ?? null);
+        setSelectedAsset(null);
+        setSelectedTool(null);
+        setMovingAssetId(null);
+        setActiveTab('map');
+        return;
       }
+
+      const result = importParcelsFromText(content, parcels);
+      if (result.focus) {
+        setParcels(result.parcels);
+        setSelectedParcel(result.focus);
+        setSelectedTool(null);
+        setMovingAssetId(null);
+        setActiveTab('map');
+      }
+      alert(describeImportResult(result));
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleExportBackup = () => {
+    const blob = new Blob([buildBackup({ assets, workOrders, parcels })], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `smartfarm-yedek-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   // Saha Aktar (Field Ingest)
@@ -353,7 +367,7 @@ export const App: React.FC = () => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".geojson,.json,.kml"
+        accept=".geojson,.json"
         onChange={handleFileUpload}
         className="hidden"
       />
@@ -368,6 +382,7 @@ export const App: React.FC = () => {
         satelliteMode={satelliteMode}
         onToggleSatellite={() => setSatelliteMode(!satelliteMode)}
         onUploadParcelClick={() => fileInputRef.current?.click()}
+        onExportBackupClick={handleExportBackup}
         onFieldIngestClick={handleFieldIngest}
         onWorkOrderQuickClick={() => {
           const first = assets[0];
@@ -385,7 +400,7 @@ export const App: React.FC = () => {
         onIoTDemoClick={handleTriggerDemoTelemetry}
         onErpSyncClick={handleErpSync}
         onOverviewResetClick={() => {
-          const next = parcels.find((p) => p.properties.ParselNo !== selectedParcel?.properties.ParselNo) || parcels[0];
+          const next = parcels.find((p) => !areSameParcel(p, selectedParcel)) || parcels[0];
           handleSelectParcel(next);
         }}
         isSolPanelOpen={isSolPanelOpen}

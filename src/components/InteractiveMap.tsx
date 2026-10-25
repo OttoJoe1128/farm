@@ -34,6 +34,8 @@ import {
   getParcelDimensionMeters,
   buildParcelGridCellSizes,
   findParcelContainingPoint,
+  areSameParcel,
+  getParcelLabel,
   MIN_GRID_CELL_METERS,
 } from '../services/gisService';
 
@@ -310,7 +312,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
     const isCadMode = currentZoom >= 18.0;
 
     parcels.forEach((parcel) => {
-      const isSelected = selectedParcel && selectedParcel.properties.ParselNo === parcel.properties.ParselNo;
+      const isSelected = areSameParcel(selectedParcel, parcel);
       const geoCoordinates = parcel.geometry.coordinates;
       let latLngRings: L.LatLngExpression[][] = [];
 
@@ -342,9 +344,9 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
 
       const tooltipContent = `
         <div class="px-2.5 py-1.5 font-sans text-xs">
-          <div class="font-bold text-emerald-400">${parcel.properties.name || `Parsel ${parcel.properties.ParselNo}`}</div>
-          <div class="text-slate-300">Ada: ${parcel.properties.Ada || '-'} / Parsel: ${parcel.properties.ParselNo}</div>
-          <div class="text-slate-400">Alan: ${parcel.properties.Alan} · ${parcel.properties.Nitelik}</div>
+          <div class="font-bold text-emerald-400">${getParcelLabel(parcel)}</div>
+          <div class="text-slate-300">Ada: ${parcel.properties.Ada || '-'} / Parsel: ${parcel.properties.ParselNo || '-'}</div>
+          <div class="text-slate-400">Alan: ${parcel.properties.Alan || '-'} · ${parcel.properties.Nitelik || '-'}</div>
         </div>
       `;
       polygon.bindTooltip(tooltipContent, {
@@ -1063,7 +1065,7 @@ export const InteractiveMap: React.FC<InteractiveMapProps> = ({
                 {selectedParcel && (
                   <div className="text-[10px] text-slate-400 font-mono px-0.5 pt-1.5 leading-tight border-t border-slate-800/60 mt-1">
                     <div className="text-slate-300 font-semibold truncate">
-                      {selectedParcel.properties.name || `Parsel ${selectedParcel.properties.ParselNo}`}
+                      {getParcelLabel(selectedParcel)}
                     </div>
                     <div className="text-sky-300">
                       Boyut: {parcelDimensions.widthM.toFixed(1)}m × {parcelDimensions.heightM.toFixed(1)}m
