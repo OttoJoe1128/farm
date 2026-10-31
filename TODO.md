@@ -62,7 +62,12 @@ Koşullar Render dokümanından (render.com/docs/free) doğrulandı; diğerleri 
 
 - [x] Neon projesi bağlandı (`neon.ts`: Postgres + `photos` bucket), `deploy` uygulandı; PostGIS depolamaya karşı backend testleri ve uçtan uca doğrulama geçti (kayıt, varlık + `parcel_id` kalıcılığı, yeniden başlatma sonrası veri, bbox sorgusu)
 - [x] Fotoğraf yükleme Object Storage'a yazıyor (`backend/services/object_store.py`), imzalı adres + `GET /api/v1/gis/media/{id}/url`
-- [ ] Backend'i Render'a (Docker) kur (`STORAGE_BACKEND=postgis`, `DATABASE_URL`=pooled olmayan adres, `AWS_*`); `SECRET_KEY`, `ENVIRONMENT=production`, `CORS_ORIGINS=<vercel domain>`, `DEFAULT_ADMIN_EMAIL/PASSWORD` ayarla
+- [x] Backend Render'da yayında: https://farm-ozur.onrender.com (Docker, `backend/`, `/health` → `storage: postgis`). Canlı uçtan uca test geçti: kayıt/token, varlık + `parcel_id`, PostGIS bbox, foto Object Storage'a yükleme ve imzalı adresle indirme, imzasız adres 403, CORS yalnızca Vercel kökeni
+- [ ] **Gizli bilgi döndürümü:** Render ayarlarının ekran görüntüsünde DB şifresi ve Object Storage anahtarları göründü. Neon'da `neondb_owner` şifresini sıfırla, Object Storage kimliğini yenile, Render'daki değişkenleri güncelle
+- [ ] Render ücretsiz plan: boşta uyuyor (ilk istek ~1 dk). Sunum öncesi `/health` ile uyandır; kalıcı çözüm için ücretli plan ya da düzenli ping
+- [ ] Render bölgesi Neon ile aynı olsun (Neon: `aws-us-east-2`); Frankfurt'ta kalıyorsa sorgu gecikmesini ölç
+- [ ] Özel alan adı kullanılıyorsa `CORS_ORIGINS`'e ekle
+- [ ] (eski madde, tamamlandı) Backend'i Render'a kur; `SECRET_KEY`, `ENVIRONMENT=production`, `CORS_ORIGINS=<vercel domain>`, `DEFAULT_ADMIN_EMAIL/PASSWORD` ayarla
 - [ ] Render'daki backend `/health` yanıtında `storage: postgis` gördüğünü doğrula
 - [ ] Pooled (`DATABASE_URL`) ve pooled olmayan (`DATABASE_URL_UNPOOLED`) adres karşılaştırması: backend uzun ömürlü bağlantı tuttuğu için şimdilik pooled olmayan adresle test edildi
 - [ ] Neon'daki `uploads` bucket'ı projede tanımlı değil (ben açmadım); kullanılmıyorsa sil, kullanılıyorsa `neon.ts`'e ekle
