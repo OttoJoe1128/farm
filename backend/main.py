@@ -43,6 +43,7 @@ from routers.fault_router import create_fault_router
 from routers.sync_router import create_sync_router
 from routers.catalog_router import create_catalog_router
 from services.storage import _read_json, _write_json, create_storage
+from services import object_store
 try:
     from deepforest import main as deepforest_main
 except ImportError:
@@ -1824,17 +1825,35 @@ async def upload_photo(
     media_files: List[Dict[str, Any]] = list(user_state.get("media_files", []))
     content: bytes = await _read_upload_limited(file)
     saved_file_name: str = f"{uuid.uuid4().hex}_{_safe_upload_name(file.filename, 'photo.jpg')}"
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_path: str = os.path.join(UPLOAD_DIR, saved_file_name)
-    with open(file_path, "wb") as output_file:
-        output_file.write(content)
-    photo_url: str = f"/uploads/{saved_file_name}"
+    content_type_text: str = str(file.content_type or "application/octet-stream")
+    media_id: str = uuid.uuid4().hex
+    storage_key: Optional[str] = None
+    if object_store.is_enabled():
+        storage_key = object_store.safe_key(str(current_user["id"]), saved_file_name)
+    if storage_key is not None:
+        try:
+            object_store.put_object(storage_key, content, content_type_text)
+            photo_url: str = object_store.presigned_get_url(storage_key)
+        except Exception:
+            logger.exception("Object Storage yukleme hatasi")
+            _api_error(
+                status_code=502,
+                error_code="storage_unavailable",
+                message="Fotograf depolamaya yazilamadi.",
+            )
+    else:
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        file_path: str = os.path.join(UPLOAD_DIR, saved_file_name)
+        with open(file_path, "wb") as output_file:
+            output_file.write(content)
+        photo_url = f"/uploads/{saved_file_name}"
     media_files.append(
         {
-            "media_id": uuid.uuid4().hex,
+            "media_id": media_id,
+            "storage_key": storage_key,
             "asset_id": str(asset_id),
-            "url": photo_url,
-            "content_type": str(file.content_type or "application/octet-stream"),
+            "url": photo_url if storage_key is None else None,
+            "content_type": content_type_text,
             "uploaded_at": iso_now_utc(),
             "uploaded_by": str(current_user.get("id", "")),
         }
@@ -1843,8 +1862,29 @@ async def upload_photo(
     _touch_user_state(user_state)
     save_user_state(str(current_user["id"]), user_state)
     return _with_meta(
-        {"status": "ok", "url": photo_url, "asset_id": str(asset_id)},
+        {"status": "ok", "url": photo_url, "media_id": media_id, "asset_id": str(asset_id)},
         current_user,
+    )
+
+@app.get("/api/v1/gis/media/{media_id}/url")
+def get_media_url(media_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
+    """Kullanıcının kendi fotoğrafı için taze (1 saat geçerli) indirme bağlantısı üretir."""
+    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    for media in user_state.get("media_files", []):
+        if str(media.get("media_id")) != media_id:
+            continue
+        storage_key = media.get("storage_key")
+        if storage_key and object_store.is_enabled():
+            return _with_meta(
+                {"status": "ok", "media_id": media_id, "url": object_store.presigned_get_url(str(storage_key)), "expires_in": 3600},
+                current_user,
+            )
+        return _with_meta({"status": "ok", "media_id": media_id, "url": media.get("url")}, current_user)
+    _api_error(
+        status_code=404,
+        error_code="media_not_found",
+        message="Fotograf bulunamadi.",
+        details={"media_id": media_id},
     )
 
 @app.get("/api/v1/gis/parcels")

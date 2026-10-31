@@ -41,6 +41,28 @@ SECRET_KEY=degistir .venv/bin/uvicorn main:app --reload --port 8000
 pytest            # repo kökünden
 ```
 
+### Neon (Postgres + Object Storage)
+
+Proje Neon'a bağlıdır (`neon.ts`, `.neon`; Neon projesi `little-feather-12339027`, dal `production`, bölge `aws-us-east-2`). `neon.ts` yalnızca Postgres ve `photos` adlı özel (private) bir Object Storage bucket'ı tanımlar.
+
+```bash
+npx neon@latest login            # bir kez, tarayıcıdan
+npx neon@latest env pull         # DATABASE_URL, AWS_* değişkenlerini .env.local'e yazar (git'e girmez)
+npx neon@latest config plan      # neon.ts değişikliğini önizle
+npx neon@latest deploy           # neon.ts'i uygula
+```
+
+Backend'i kalıcı depolamayla çalıştırmak için (Render'da da aynı değişkenler ortam değişkeni olarak girilir):
+
+```bash
+STORAGE_BACKEND=postgis DATABASE_URL=<DATABASE_URL_UNPOOLED> \
+AWS_ENDPOINT_URL_S3=... AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... AWS_REGION=us-east-2 \
+  uvicorn main:app --port 8000
+```
+
+- `AWS_*` değişkenleri tanımlıysa `POST /api/v1/gis/upload-photo` fotoğrafı Object Storage'a yazar ve imzalı (1 saat geçerli) adres döner; taze adres için `GET /api/v1/gis/media/{media_id}/url`. Tanımlı değilse yerel `UPLOAD_DIR` kullanılır (önceki davranış).
+- Testler için production'a dokunmayın: `neon branches create --name dev-test`, `TEST_STORAGE_BACKEND=postgis TEST_DATABASE_URL=<dal adresi> pytest`, işi bitince dalı silin.
+
 Swagger: `http://localhost:8000/docs`. Docker: `SECRET_KEY=... docker compose up` (PostGIS için `--profile postgis`).
 
 Ortam değişkenleri: `SECRET_KEY` (production'da zorunlu), `ENVIRONMENT`, `CORS_ORIGINS`, `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD`, `DB_FILE`, `USERS_FILE`, `UPLOAD_DIR`, `MAX_UPLOAD_BYTES`, `STORAGE_BACKEND` (`json` | `postgis`), `DATABASE_URL`.

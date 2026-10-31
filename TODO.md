@@ -60,8 +60,13 @@ Koşullar Render dokümanından (render.com/docs/free) doğrulandı; diğerleri 
 
 Önce barındırma kararı (yukarıdaki tablo), sonra:
 
-- [ ] Backend'i Render'a (Docker) kur; `SECRET_KEY`, `ENVIRONMENT=production`, `CORS_ORIGINS=<vercel domain>`, `DEFAULT_ADMIN_EMAIL/PASSWORD` ayarla
-- [ ] Neon'da PostGIS veritabanı aç, `STORAGE_BACKEND=postgis` + `DATABASE_URL`; `/health` ile doğrula
+- [x] Neon projesi bağlandı (`neon.ts`: Postgres + `photos` bucket), `deploy` uygulandı; PostGIS depolamaya karşı backend testleri ve uçtan uca doğrulama geçti (kayıt, varlık + `parcel_id` kalıcılığı, yeniden başlatma sonrası veri, bbox sorgusu)
+- [x] Fotoğraf yükleme Object Storage'a yazıyor (`backend/services/object_store.py`), imzalı adres + `GET /api/v1/gis/media/{id}/url`
+- [ ] Backend'i Render'a (Docker) kur (`STORAGE_BACKEND=postgis`, `DATABASE_URL`=pooled olmayan adres, `AWS_*`); `SECRET_KEY`, `ENVIRONMENT=production`, `CORS_ORIGINS=<vercel domain>`, `DEFAULT_ADMIN_EMAIL/PASSWORD` ayarla
+- [ ] Render'daki backend `/health` yanıtında `storage: postgis` gördüğünü doğrula
+- [ ] Pooled (`DATABASE_URL`) ve pooled olmayan (`DATABASE_URL_UNPOOLED`) adres karşılaştırması: backend uzun ömürlü bağlantı tuttuğu için şimdilik pooled olmayan adresle test edildi
+- [ ] Neon'daki `uploads` bucket'ı projede tanımlı değil (ben açmadım); kullanılmıyorsa sil, kullanılıyorsa `neon.ts`'e ekle
+- [ ] `npm audit`: `vitest` zincirinde (`tinypool`, `@vitest/mocker`) 2 kritik/1 orta bulgu; yalnızca test aracı, `vitest` sürümünü güncelle
 - [ ] Vercel'de `VITE_API_URL` ortam değişkeni; `src/services/api.ts` istemcisi
 - [ ] Giriş / kayıt ekranı, token'ı güvenli sakla, yenileme (`/api/v1/auth/refresh`)
 - [ ] Varlıkları `/api/v1/gis/*` ile yükle/ekle/güncelle/sil (`asset_id` eşleme kuralı sabit). `localStorage` çevrimdışı önbellek olarak kalsın (mevcut davranışı bozma)
@@ -91,5 +96,6 @@ Koşullar Render dokümanından (render.com/docs/free) doğrulandı; diğerleri 
 ## Güvenlik ve altyapı
 
 - [x] Git remote adresinden GitHub token'ı kaldırıldı
+- [ ] Auth, Functions, AI Gateway, Realtime Neon servisleri bilerek açılmadı (kodda karşılığı yok); gerekince `neon.ts`'e eklenir
 - [ ] Konuşmalarda paylaşılmış GitHub token'larını GitHub'da iptal et (Settings → Developer settings → Tokens); yenisini yalnızca credential helper/SSH ile kullan
 - [ ] Release kontrol listesi (tek checklist)
