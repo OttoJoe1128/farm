@@ -1548,7 +1548,9 @@ def login(request: LoginRequest):
     is_valid = False
     needs_rehash = False
     if user:
-        stored_hash = user.get("password_hash")
+        # JSONB (PostGIS) yapısı mı yoksa düz (JSON) yapı mı kontrolü
+        user_data = user.get("doc", user)
+        stored_hash = user_data.get("password_hash")
         if stored_hash:
             is_valid = check_password_hash(stored_hash, password_text)
     
