@@ -1208,16 +1208,16 @@ def _build_user_response(user: Dict[str, Any]) -> Dict[str, Any]:
 def _find_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     users_db: Dict[str, Any] = load_users_db()
     for user in users_db["users"]:
-        user_data = user.get("doc", user)
-        if str(user_data.get("email", "")).lower() == email.lower():
+        stored_email = user.get('email') or user.get('doc', {}).get('email', '')
+        if str(stored_email).lower() == email.lower():
             return user
     return None
 
 def _find_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     users_db: Dict[str, Any] = load_users_db()
     for user in users_db["users"]:
-        user_data = user.get("doc", user)
-        if str(user_data.get("id", user.get("id"))) == str(user_id):
+        stored_id = user.get('id') or user.get('doc', {}).get('id', '')
+        if str(stored_id) == str(user_id):
             return user
     return None
 
