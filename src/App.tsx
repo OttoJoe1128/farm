@@ -14,7 +14,16 @@ import { createNewAsset, calculateLocalMeters, areSameParcel } from './services/
 import { importParcelsFromText, describeImportResult } from './services/parcelImport';
 import { loadState, saveState, buildBackup, parseBackup } from './services/persistence';
 
+import { Login } from './components/Login';
+import api from './services/api';
+
 export const App: React.FC = () => {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('auth_token'));
+  const isBackendEnabled = !!import.meta.env.VITE_API_URL;
+
+  if (isBackendEnabled && !isAuthenticated) {
+    return <Login />;
+  }
   // Navigation & Panels State
   const [activeTab, setActiveTab] = useState<ActiveTab>('map');
   const [isSolPanelOpen, setIsSolPanelOpen] = useState<boolean>(true);
