@@ -1535,34 +1535,25 @@ app.include_router(
 
 @app.post("/api/v1/auth/register")
 def register(request: RegisterRequest):
-    email_text: str = request.email.strip().lower()
-    username_text: str = request.username.strip()
-    password_text: str = request.password.strip()
-    if email_text == "" or username_text == "" or password_text == "":
-        raise HTTPException(status_code=400, detail="Email, kullanici adi ve sifre zorunlu.")
-    password_hash: str = _hash_password(password_text)
-    with _db_lock:
-        if _find_user_by_email(email_text) is not None:
-            raise HTTPException(status_code=409, detail="Bu email zaten kayitli.")
-        users_db: Dict[str, Any] = load_users_db()
-        user_record: Dict[str, Any] = {
-            "id": uuid.uuid4().hex,
-            "email": email_text,
-            "username": username_text,
-            "password_hash": password_hash,
-            "role": "user",
-            "created_at": iso_now_utc(),
-        }
-        users_db["users"].append(user_record)
-        save_users_db(users_db)
-    return _create_auth_payload(user_record)
+    # GÜVENLİK: Dışarıdan kayıt kapatıldı.
+    raise HTTPException(status_code=403, detail="Kayıtlar kapalıdır.")
 
 @app.post("/api/v1/auth/login")
 def login(request: LoginRequest):
     email_text: str = request.email.strip().lower()
     password_text: str = request.password.strip()
     user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
-    is_valid, needs_rehash = _verify_password(user or {}, password_text)
+    
+    # bcrypt doğrulaması
+    import bcrypt
+    is_valid = False
+    needs_rehash = False
+    if user:
+        stored_hash = user.get("password_hash")
+        if stored_hash:
+            # Hash'i mutlaka byte olarak gönderiyoruz
+            is_valid = bcrypt.checkpw(password_text.encode('utf-8'), stored_hash.encode('utf-8'))
+    
     if user is None or not is_valid:
         raise HTTPException(status_code=401, detail="Email veya sifre hatali.")
     if needs_rehash:
