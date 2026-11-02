@@ -60,7 +60,7 @@ def _cors_settings(raw_origins: str) -> Tuple[List[str], bool]:
     return origins, True
 
 
-CORS_ORIGINS, CORS_ALLOW_CREDENTIALS = _cors_settings(os.getenv("CORS_ORIGINS", "*"))
+CORS_ORIGINS, CORS_ALLOW_CREDENTIALS = _cors_settings(os.getenv("CORS_ORIGINS", "https://farm-nine-livid.vercel.app"))
 
 app.add_middleware(
     CORSMiddleware,
