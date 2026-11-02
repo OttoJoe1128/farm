@@ -19,7 +19,7 @@ import requests
 import cv2
 import numpy as np
 import jwt
-import bcrypt
+from werkzeug.security import generate_password_hash, check_password_hash
 from io import BytesIO
 from PIL import Image
 from shapely.geometry import shape, Point
@@ -1544,15 +1544,13 @@ def login(request: LoginRequest):
     password_text: str = request.password.strip()
     user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
     
-    # bcrypt doğrulaması
-    import bcrypt
+    # werkzeug doğrulaması
     is_valid = False
     needs_rehash = False
     if user:
         stored_hash = user.get("password_hash")
         if stored_hash:
-            # Hash'i mutlaka byte olarak gönderiyoruz
-            is_valid = bcrypt.checkpw(password_text.encode('utf-8'), stored_hash.encode('utf-8'))
+            is_valid = check_password_hash(stored_hash, password_text)
     
     if user is None or not is_valid:
         raise HTTPException(status_code=401, detail="Email veya sifre hatali.")
