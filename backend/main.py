@@ -1027,7 +1027,6 @@ def detect_simple_tree_candidates(image_rgba_np: np.ndarray) -> List[Tuple[float
     dark_mask: np.ndarray = cv2.inRange(hsv_image, (0, 0, 0), (180, 120, 95))
     combined_mask: np.ndarray = cv2.bitwise_or(green_mask, brown_mask_1)
     combined_mask = cv2.bitwise_or(combined_mask, dark_mask)
-    # Kucuk koyu fidan noktalarini one cikarmak icin black-hat kullan.
     gray_image: np.ndarray = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2GRAY)
     blackhat_kernel: np.ndarray = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
     blackhat_image: np.ndarray = cv2.morphologyEx(gray_image, cv2.MORPH_BLACKHAT, blackhat_kernel)
@@ -1164,7 +1163,6 @@ def detect_simple_structure_candidates(image_rgba_np: np.ndarray) -> List[List[T
         if roi.size > 0:
             texture_std: float = float(np.std(roi))
             if texture_std > 50.0:
-                # Yogun dogal doku (agac/bitki) ise yapi adayi olmasin.
                 continue
         polygon_pixels: List[Tuple[float, float]] = []
         for point in approx:
@@ -1195,56 +1193,41 @@ def load_users_db() -> Dict[str, Any]:
 def save_users_db(payload: Dict[str, Any]) -> None:
     storage.save_users(payload)
 
-def _password_bytes(password: str) -> bytes:
-    # Pre-hash so bcrypt's 72-byte input limit never truncates long passwords.
-    return base64.b64encode(hashlib.sha256(password.encode("utf-8")).digest())
-
 def _hash_password(password: str) -> str:
-    return bcrypt.hashpw(_password_bytes(password), bcrypt.gensalt()).decode("utf-8")
-
-def _legacy_sha256_hash(password: str, salt: str) -> str:
-    return hashlib.sha256(f"{salt}:{password}".encode("utf-8")).hexdigest()
-
-def _verify_password(user: Dict[str, Any], password: str) -> Tuple[bool, bool]:
-    """Returns (is_valid, needs_rehash)."""
-    stored_hash: str = str(user.get("password_hash", ""))
-    if stored_hash.startswith("$2"):
-        try:
-            return bcrypt.checkpw(_password_bytes(password), stored_hash.encode("utf-8")), False
-        except ValueError:
-            return False, False
-    salt: str = str(user.get("password_salt", ""))
-    is_valid: bool = stored_hash != "" and hmac.compare_digest(stored_hash, _legacy_sha256_hash(password, salt))
-    return is_valid, is_valid
+    return generate_password_hash(password)
 
 def _build_user_response(user: Dict[str, Any]) -> Dict[str, Any]:
+    user_data = user.get("doc", user)
     return {
-        "id": user.get("id"),
-        "email": user.get("email"),
-        "username": user.get("username"),
-        "role": user.get("role", "user"),
+        "id": user_data.get("id", user.get("id")),
+        "email": user_data.get("email", user.get("email")),
+        "username": user_data.get("username", user.get("username")),
+        "role": user_data.get("role", user.get("role", "user")),
     }
 
 def _find_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     users_db: Dict[str, Any] = load_users_db()
     for user in users_db["users"]:
-        if str(user.get("email", "")).lower() == email.lower():
+        user_data = user.get("doc", user)
+        if str(user_data.get("email", "")).lower() == email.lower():
             return user
     return None
 
 def _find_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     users_db: Dict[str, Any] = load_users_db()
     for user in users_db["users"]:
-        if str(user.get("id")) == str(user_id):
+        user_data = user.get("doc", user)
+        if str(user_data.get("id", user.get("id"))) == str(user_id):
             return user
     return None
 
 def _create_token(user: Dict[str, Any], expires_delta: datetime.timedelta, token_type: str) -> str:
+    user_data = user.get("doc", user)
     now_utc: datetime.datetime = datetime.datetime.now(datetime.timezone.utc)
     expires_at: datetime.datetime = now_utc + expires_delta
     payload: Dict[str, Any] = {
-        "sub": user.get("id"),
-        "role": user.get("role", "user"),
+        "sub": user_data.get("id", user.get("id")),
+        "role": user_data.get("role", user.get("role", "user")),
         "type": token_type,
         "iat": int(now_utc.timestamp()),
         "exp": int(expires_at.timestamp()),
@@ -1285,7 +1268,8 @@ def ensure_default_admin() -> None:
     with _db_lock:
         users_db: Dict[str, Any] = load_users_db()
         for user in users_db["users"]:
-            if str(user.get("email", "")).lower() == DEFAULT_ADMIN_EMAIL.strip().lower():
+            user_data = user.get("doc", user)
+            if str(user_data.get("email", "")).lower() == DEFAULT_ADMIN_EMAIL.strip().lower():
                 return
         users_db["users"].append(
             {
@@ -1321,7 +1305,8 @@ def get_current_user(
     return user
 
 def require_admin(current_user: Dict[str, Any] = Depends(get_current_user)) -> Dict[str, Any]:
-    if str(current_user.get("role", "user")) != "admin":
+    user_data = current_user.get("doc", current_user)
+    if str(user_data.get("role", "user")) != "admin":
         raise HTTPException(status_code=403, detail="Admin yetkisi gerekli.")
     return current_user
 
@@ -1417,6 +1402,7 @@ def _extract_parcel_boundary(asset_item: Dict[str, Any]) -> List[List[float]]:
 
 def _build_fault_log_entry(request: FaultLogCreateRequest, current_user: Dict[str, Any]) -> Dict[str, Any]:
     event_time: str = request.created_at or iso_now_utc()
+    user_data = current_user.get("doc", current_user)
     return {
         "log_id": uuid.uuid4().hex,
         "log_type": "fault",
@@ -1429,7 +1415,7 @@ def _build_fault_log_entry(request: FaultLogCreateRequest, current_user: Dict[st
         "created_at": event_time,
         "resolved_at": request.resolved_at,
         "photo_url": request.photo_url,
-        "reported_by": str(request.user_id or current_user.get("id", "")),
+        "reported_by": str(request.user_id or user_data.get("id", "")),
         "updates": [],
     }
 
@@ -1472,7 +1458,8 @@ def assets_in_bbox(
 ):
     if min_lon > max_lon or min_lat > max_lat:
         raise HTTPException(status_code=422, detail="Gecersiz bbox.")
-    user_id: str = str(current_user["id"])
+    user_data = current_user.get("doc", current_user)
+    user_id: str = str(user_data.get("id"))
     get_user_state(user_id)
     items = storage.assets_in_bbox(user_id, (min_lon, min_lat, max_lon, max_lat))
     return _with_meta({"assets": items, "count": len(items)}, current_user)
@@ -1535,7 +1522,6 @@ app.include_router(
 
 @app.post("/api/v1/auth/register")
 def register(request: RegisterRequest):
-    # GÜVENLİK: Dışarıdan kayıt kapatıldı.
     raise HTTPException(status_code=403, detail="Kayıtlar kapalıdır.")
 
 @app.post("/api/v1/auth/login")
@@ -1543,32 +1529,17 @@ def login(request: LoginRequest):
     email_text: str = request.email.strip().lower()
     password_text: str = request.password.strip()
     user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
-    
-    # werkzeug doğrulaması
+
     is_valid = False
-    needs_rehash = False
     if user:
-        # JSONB (PostGIS) yapısı mı yoksa düz (JSON) yapı mı kontrolü
         user_data = user.get("doc", user)
         stored_hash = user_data.get("password_hash")
         if stored_hash:
             is_valid = check_password_hash(stored_hash, password_text)
-    
+
     if user is None or not is_valid:
         raise HTTPException(status_code=401, detail="Email veya sifre hatali.")
-    if needs_rehash:
-        _upgrade_password_hash(str(user.get("id")), password_text)
     return _create_auth_payload(user)
-
-def _upgrade_password_hash(user_id: str, password: str) -> None:
-    new_hash: str = _hash_password(password)
-    with _db_lock:
-        users_db: Dict[str, Any] = load_users_db()
-        for stored_user in users_db["users"]:
-            if str(stored_user.get("id")) == user_id:
-                stored_user["password_hash"] = new_hash
-                stored_user.pop("password_salt", None)
-        save_users_db(users_db)
 
 @app.post("/api/v1/auth/refresh")
 def refresh_token(request: RefreshRequest):
@@ -1646,7 +1617,8 @@ def contracts(current_user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.get("/api/v1/gis/map")
 def get_map(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     return _with_meta(
         {"status": "ok", "map": canonicalize_map_items(user_state["map"])},
         current_user,
@@ -1654,7 +1626,8 @@ def get_map(current_user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.get("/api/v1/gis/snapshot")
 def get_snapshot(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     map_data = canonicalize_map_items(user_state["map"])
     user_state["map"] = map_data
     return _with_meta(
@@ -1669,10 +1642,12 @@ def get_snapshot(current_user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.delete("/api/v1/gis/reset-map")
 def reset_map(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     user_state["map"] = []
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "cleared"}, current_user)
 
 def _safe_upload_name(raw_name: Optional[str], fallback: str) -> str:
@@ -1756,12 +1731,14 @@ async def upload_map(
                 error_code="validation_error",
                 message="Dosyada islenebilir geometri bulunamadi.",
             )
-        user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+        user_data = current_user.get("doc", current_user)
+        user_id = str(user_data.get("id"))
+        user_state: Dict[str, Any] = get_user_state(user_id)
         current_map: List[Dict[str, Any]] = list(user_state.get("map", []))
         current_map.extend(canonicalize_map_items(data))
         user_state["map"] = current_map
         _touch_user_state(user_state)
-        save_user_state(str(current_user["id"]), user_state)
+        save_user_state(user_id, user_state)
         return _with_meta({"status": "success", "data": data}, current_user)
     finally:
         if os.path.exists(temp_path):
@@ -1769,13 +1746,15 @@ async def upload_map(
 
 @app.post("/api/v1/gis/add-asset")
 def add_asset(asset: Asset, current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     new_asset = ensure_asset_identity(asset.dict())
     map_data.append(new_asset)
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "success", "asset": new_asset}, current_user)
 
 @app.post("/api/v1/gis/batch-add-assets")
@@ -1783,7 +1762,9 @@ def batch_add_assets(
     request: BatchAssetCreateRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     created_assets: List[Dict[str, Any]] = []
     for raw_asset in request.assets:
@@ -1795,7 +1776,7 @@ def batch_add_assets(
     user_state["map"] = map_data
     if len(created_assets) > 0:
         _touch_user_state(user_state)
-        save_user_state(str(current_user["id"]), user_state)
+        save_user_state(user_id, user_state)
     return _with_meta(
         {
             "status": "ok",
@@ -1812,7 +1793,9 @@ async def upload_photo(
     asset_id: str = Form(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     media_files: List[Dict[str, Any]] = list(user_state.get("media_files", []))
     content: bytes = await _read_upload_limited(file)
     saved_file_name: str = f"{uuid.uuid4().hex}_{_safe_upload_name(file.filename, 'photo.jpg')}"
@@ -1820,7 +1803,7 @@ async def upload_photo(
     media_id: str = uuid.uuid4().hex
     storage_key: Optional[str] = None
     if object_store.is_enabled():
-        storage_key = object_store.safe_key(str(current_user["id"]), saved_file_name)
+        storage_key = object_store.safe_key(user_id, saved_file_name)
     if storage_key is not None:
         try:
             object_store.put_object(storage_key, content, content_type_text)
@@ -1846,12 +1829,12 @@ async def upload_photo(
             "url": photo_url if storage_key is None else None,
             "content_type": content_type_text,
             "uploaded_at": iso_now_utc(),
-            "uploaded_by": str(current_user.get("id", "")),
+            "uploaded_by": user_id,
         }
     )
     user_state["media_files"] = media_files[-2000:]
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta(
         {"status": "ok", "url": photo_url, "media_id": media_id, "asset_id": str(asset_id)},
         current_user,
@@ -1859,8 +1842,8 @@ async def upload_photo(
 
 @app.get("/api/v1/gis/media/{media_id}/url")
 def get_media_url(media_id: str, current_user: Dict[str, Any] = Depends(get_current_user)):
-    """Kullanıcının kendi fotoğrafı için taze (1 saat geçerli) indirme bağlantısı üretir."""
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     for media in user_state.get("media_files", []):
         if str(media.get("media_id")) != media_id:
             continue
@@ -1880,7 +1863,8 @@ def get_media_url(media_id: str, current_user: Dict[str, Any] = Depends(get_curr
 
 @app.get("/api/v1/gis/parcels")
 def list_parcels(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     map_data: List[Dict[str, Any]] = canonicalize_map_items(list(user_state.get("map", [])))
     parcels: List[Dict[str, Any]] = []
     for asset_item in map_data:
@@ -1902,7 +1886,9 @@ def list_parcels(current_user: Dict[str, Any] = Depends(get_current_user)):
 
 @app.put("/api/v1/gis/update-asset/{index}")
 def update_asset(index: int, asset: Asset, current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     if index < 0 or index >= len(map_data):
         _api_error(
@@ -1921,7 +1907,7 @@ def update_asset(index: int, asset: Asset, current_user: Dict[str, Any] = Depend
     map_data[index] = conflict_result["resolved_asset"]
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta(
         {
             "status": "updated",
@@ -1934,7 +1920,9 @@ def update_asset(index: int, asset: Asset, current_user: Dict[str, Any] = Depend
 
 @app.delete("/api/v1/gis/delete-asset/{index}")
 def delete_asset(index: int, current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     if index < 0 or index >= len(map_data):
         _api_error(
@@ -1946,7 +1934,7 @@ def delete_asset(index: int, current_user: Dict[str, Any] = Depends(get_current_
     map_data.pop(index)
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "deleted"}, current_user)
 
 
@@ -1955,7 +1943,9 @@ def update_asset_by_id(
     request: AssetMutationRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     asset_id: str = str(request.asset_id or "").strip()
     if asset_id == "" or request.asset is None:
@@ -1981,7 +1971,7 @@ def update_asset_by_id(
     map_data[target_index] = conflict_result["resolved_asset"]
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta(
         {
             "status": "updated",
@@ -1998,7 +1988,9 @@ def delete_asset_by_id(
     request: AssetMutationRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     asset_id: str = str(request.asset_id or "").strip()
     if asset_id == "":
@@ -2018,7 +2010,7 @@ def delete_asset_by_id(
     removed_asset = map_data.pop(target_index)
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "deleted", "asset": removed_asset}, current_user)
 
 @app.post("/api/v1/field/ingest")
@@ -2026,7 +2018,9 @@ def ingest_field_data(
     request: FieldIngestRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     staged_items: List[Dict[str, Any]] = []
     for feature in request.features:
@@ -2072,7 +2066,7 @@ def ingest_field_data(
     map_data.extend(canonicalize_map_items(staged_items))
     user_state["map"] = map_data
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta(
         {
             "status": "ok",
@@ -2087,7 +2081,8 @@ def ingest_field_data(
 
 @app.get("/api/v1/work-orders")
 def list_work_orders(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
     return _with_meta(
         {"status": "ok", "items": work_orders, "count": len(work_orders)},
@@ -2100,7 +2095,9 @@ def create_work_order(
     request: WorkOrderCreateRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
     map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
     payload: Dict[str, Any] = {
@@ -2131,7 +2128,7 @@ def create_work_order(
         user_state["map"] = map_data
     user_state["work_orders"] = work_orders
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "ok", "item": created}, current_user)
 
 
@@ -2141,7 +2138,9 @@ def patch_work_order(
     request: WorkOrderUpdateRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     work_orders: List[Dict[str, Any]] = list(user_state.get("work_orders", []))
     patch_data: Dict[str, Any] = {}
     if request.status is not None:
@@ -2161,13 +2160,14 @@ def patch_work_order(
         )
     user_state["work_orders"] = work_orders
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "ok", "item": updated}, current_user)
 
 
 @app.get("/api/v1/analytics/kpi")
 def analytics_kpi(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     kpi = build_kpi(
         map_items=canonicalize_map_items(list(user_state.get("map", []))),
         work_orders=list(user_state.get("work_orders", [])),
@@ -2182,7 +2182,9 @@ def erp_sync(
     request: ErpSyncRequest,
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_id = str(user_data.get("id"))
+    user_state: Dict[str, Any] = get_user_state(user_id)
     job_result = run_connector_sync(
         connector=request.connector,
         payload={
@@ -2195,13 +2197,14 @@ def erp_sync(
     jobs.append(job_result)
     user_state["integration_jobs"] = jobs[-200:]
     _touch_user_state(user_state)
-    save_user_state(str(current_user["id"]), user_state)
+    save_user_state(user_id, user_state)
     return _with_meta({"status": "ok", "job": job_result}, current_user)
 
 
 @app.get("/api/v1/integrations/erp/jobs")
 def erp_jobs(current_user: Dict[str, Any] = Depends(get_current_user)):
-    user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+    user_data = current_user.get("doc", current_user)
+    user_state: Dict[str, Any] = get_user_state(str(user_data.get("id")))
     jobs: List[Dict[str, Any]] = list(user_state.get("integration_jobs", []))
     return _with_meta(
         {"status": "ok", "items": jobs, "count": len(jobs)},
@@ -2255,7 +2258,6 @@ def fetch_satellite_image(
             message="Uydu gorseli alinirken hata olustu.",
         )
 
-# --- 🔥 DERİN ÖĞRENME ANALİZİ 🔥 ---
 @app.post("/api/v1/gis/analyze-satellite")
 def analyze_satellite(
     request: AnalysisRequest,
@@ -2353,19 +2355,21 @@ def analyze_satellite(
                     "properties": {"iot_connected": False, "status": "unverified", "ai_guess": "yapi", "detector": "simple_cv", "asset_type": "yapi_polygon"},
                 })
 
-        user_state: Dict[str, Any] = get_user_state(str(current_user["id"]))
+        user_data = current_user.get("doc", current_user)
+        user_id = str(user_data.get("id"))
+        user_state: Dict[str, Any] = get_user_state(user_id)
         map_data: List[Dict[str, Any]] = list(user_state.get("map", []))
         map_data.extend(canonicalize_map_items(detected_assets))
         user_state["map"] = map_data
         _touch_user_state(user_state)
-        save_user_state(str(current_user["id"]), user_state)
+        save_user_state(user_id, user_state)
 
         print(f"Toplam {len(detected_assets)} varlık bulundu.")
         return _with_meta(
             {"status": "success", "assets": detected_assets},
             current_user,
         )
-        
+
     except Exception as e:
         print(f"HATA: {e}")
         _api_error(
@@ -2378,7 +2382,7 @@ def analyze_satellite(
 def admin_farms(_: Dict[str, Any] = Depends(require_admin)):
     users_db: Dict[str, Any] = load_users_db()
     users_by_id: Dict[str, Dict[str, Any]] = {
-        str(user.get("id")): user for user in users_db.get("users", [])
+        str(user.get("doc", user).get("id")): user for user in users_db.get("users", [])
     }
     state_db: Dict[str, Any] = load_db()
     users_bucket: Dict[str, Any] = state_db.get("users", {})
@@ -2404,12 +2408,13 @@ def admin_farms(_: Dict[str, Any] = Depends(require_admin)):
             elif geometry_type == "Point":
                 asset_count += 1
         user_obj: Dict[str, Any] = users_by_id.get(str(user_id), {})
+        user_obj_data = user_obj.get("doc", user_obj)
         farms.append(
             {
                 "user_id": user_id,
-                "email": user_obj.get("email", "unknown"),
-                "username": user_obj.get("username", "unknown"),
-                "role": user_obj.get("role", "user"),
+                "email": user_obj_data.get("email", "unknown"),
+                "username": user_obj_data.get("username", "unknown"),
+                "role": user_obj_data.get("role", "user"),
                 "parcel_count": parcel_count,
                 "asset_count": asset_count,
                 "version": state.get("version", 0),
