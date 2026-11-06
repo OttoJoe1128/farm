@@ -179,23 +179,15 @@ class PostgisStorage:
     name = "postgis"
 
     def __init__(self, database_url: str) -> None:
-        import psycopg
-        from psycopg.types.json import Jsonb
-
-        self._psycopg = psycopg
-        self._jsonb = Jsonb
-        self._url = database_url
-        self._local = threading.local()
-        with self._conn() as conn:
+        from psycopg_pool import ConnectionPool
+        self._pool = ConnectionPool(database_url, min_size=1, max_size=10)
+        with self._pool.connection() as conn:
             conn.execute(POSTGIS_SCHEMA)
 
     @contextlib.contextmanager
     def _conn(self):
-        conn = getattr(self._local, "conn", None)
-        if conn is None or conn.closed:
-            conn = self._psycopg.connect(self._url, autocommit=True)
-            self._local.conn = conn
-        yield conn
+        with self._pool.connection() as conn:
+            yield conn
 
     def _rows(self, sql: str, params: Sequence[Any] = ()) -> List[Tuple[Any, ...]]:
         with self._conn() as conn:
