@@ -9,6 +9,8 @@ import math
 import base64
 import datetime
 import hashlib
+
+print("--- BACKEND YENİDEN BAŞLATILDI: " + datetime.datetime.now().isoformat() + " ---")
 import hmac
 import logging
 import re
