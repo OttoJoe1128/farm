@@ -1532,14 +1532,11 @@ def login(request: LoginRequest):
 
     is_valid = False
     if user:
-        user_data = user.get("doc", user)
+        # Hem sütun hem doc içindeki değerleri birleştirerek kontrol et
+        user_data = {**user, **user.get("doc", {})}
         stored_hash = user_data.get("password_hash")
-        # Loglama
-        print(f"DEBUG: Login Attempt - Email: {email_text}, Hash Found: {stored_hash is not None}, UserKeys: {list(user_data.keys())}")
         if stored_hash:
             is_valid = check_password_hash(stored_hash, password_text)
-            if not is_valid:
-                print(f"DEBUG: Password verification failed for email: {email_text}")
     
     if user is None or not is_valid:
         raise HTTPException(status_code=401, detail="Email veya sifre hatali.")
